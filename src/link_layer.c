@@ -20,7 +20,7 @@
 #define DISC 0x0B
 
 // MISC
-enum {
+typedef enum {
     START,
     SET_START_FLAG, 
     SET_A, 
@@ -33,13 +33,16 @@ enum {
     UA_BCC, 
     UA_END_FLAG, 
     END
-} OPEN_STATE
+} OPEN_STATE;
+
+OPEN_STATE state = START; 
 
 #define FALSE 0
 #define TRUE 1
 
 int alarmEnabled = FALSE;
 int retransmissions;
+int alarmCount = 0; 
 
 // Alarm function handler
 void alarmHandler(int signal)
@@ -62,7 +65,6 @@ int llopen(LinkLayer connectionParameters)
 {   
     int retransmissions = connectionParameters.nRetransmissions; 
     int timeout = connectionParameters.timeout;
-    OPEN_STATE state = START; 
     
     if ( openSerialPort(connectionParameters.serialPort, connectionParameters.baudRate) < 0) return -1;
     while (retransmissions > 0 && state != END){
@@ -71,51 +73,34 @@ int llopen(LinkLayer connectionParameters)
             alarmEnabled = TRUE;
         }
         switch(connectionParameters.role){
-            case L1Tx:
+            case  LlTx:
                 if( llopenTx(&state)) return -1;
             break; 
-            case L1Rx:
+            case LlRx:
                 if( llopenRx(&state)) return -1;
             break;
             default:
             return -1;
         }
     }
-
-
+    if(retransmissions >0 ) return -1 ; 
     return 1;
 }
 
 int llopenTx(OPEN_STATE *state){
     unsigned char byte; 
-    switch(state){
+    switch(*state){
         case START:
-            writeBytesSerialPort({FLAG},1);
-            state = SET_START_FLAG;
-        break;
-        case SET_START_FLAG:
-            writeBytesSerialPort({A_Tx},1);
-            state = SET_A;
-        break;
-        case SET_A: 
-            writeBytesSerialPort({SET},1);
-            state = SET_C;
-        break;
-        case SET_C:
-            writeBytesSerialPort({A_Tx ^ SET},1);
-            state = SET_BCC;
-        break;
-        case SET_BCC: 
-            writeBytesSerialPort({FLAG},1);
+            char* bytes = {FLAG, A_Tx, SET, A_Tx ^ SET, FLAG} ;
+            if(writeBytesSerialPort(bytes,5)== -1 ) return -1;
             state = SET_END_FLAG;
-        break; 
+        break;
         case SET_END_FLAG:
             if(readByteSerialPort(&byte)){
                 if(byte == FLAG){
-                    state= UA_START_FLAG;
+                    state = UA_START_FLAG;
                 }
             }
-        break;
         case UA_START_FLAG:
             if(readByteSerialPort(&byte)){
                 if(byte == A_Rx ){
@@ -129,19 +114,72 @@ int llopenTx(OPEN_STATE *state){
                     state = UA_C;
                 }
             }
-        case UA_SET_C:
+        case UA_C:
             if(readByteSerialPort(&byte)){
                 if(byte == UA ^ A_Rx){ 
                      state = UA_BCC;
                 }
             }
         break;
-        case UA_SET_BCC:
+        case UA_BCC:
             if(readByteSerialPort(&byte)){
-                if(byte == FLAg){
-                    state = UA_END_FLAG;
+                if(byte == FLAG){
+                    state = END;
                 }
             }
+        break;
+    }
+}
+
+int llopenRx(OPEN_STATE *state){
+    unsigned char byte; 
+    switch(*state){
+        case START:
+            if(readByteSerialPort(&byte)){
+                if(byte == FLAG){
+                    state= SET_START_FLAG;
+                }
+            }
+        break;
+        case SET_START_FLAG:
+            if(readByteSerialPort(&byte)){
+                if(byte == A_Tx ){
+                    state = SET_A;
+                }
+            }
+        break;
+        case SET_A: 
+            if(readByteSerialPort(&byte)){
+                if(byte == SET ){
+                    state = UA_A;
+                }
+            }
+        break;
+        case SET_C:
+            if(readByteSerialPort(&byte)){
+                if(byte == A_Tx ^ SET){
+                    state = SET_BCC;
+                }
+            }
+        break;
+        case SET_BCC: 
+            if(readByteSerialPort(&byte)){
+                if(byte == FLAG){
+                    state = SET_END_FLAG;
+                }
+            }
+        break; 
+        case SET_END_FLAG:
+            if(readByteSerialPort(&byte)){
+                if(byte == FLAG){
+                    state= UA_START_FLAG;
+                }
+            }
+        break;
+        case UA_START_FLAG:
+            char* bytes = {FLAG, A_Rx,UA,A_Rx ^ UA,FLAG };
+           if(writeBytesSerialPort(bytes,5)== -1 ) return -1; 
+           state = END;
         break;
     }
 }
