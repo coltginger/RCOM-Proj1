@@ -157,7 +157,30 @@ int llopenRx(OPEN_STATE state){
 ////////////////////////////////////////////////
 int llwrite(const unsigned char *buf, int bufSize)
 {
-    // TODO
+    unsigned char *frame = malloc(bufSize + 6);
+    frame[0] = FLAG;
+    frame[1] = A_Tx;
+    frame[2] = SET;
+    frame[3] = A_Tx ^ SET; // BCC1
+    memcpy(frame + 4, buf, bufSize);
+
+
+    int k = 4;
+    for (int i = 0; i < bufSize; i++)
+    {
+        frame[k++] = buf[i];
+    }
+
+    unsigned char bcc2 = frame[4];
+    for (int i = 5; i < bufSize; i++)
+    {
+        bcc2 ^= frame[i];
+    }
+
+    frame[k++] = bcc2;
+    frame[k++] = FLAG;
+
+
 
     return 0;
 }
