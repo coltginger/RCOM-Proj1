@@ -63,6 +63,7 @@ void alarmHandler(int signal)
 ////////////////////////////////////////////////
 int llopen(LinkLayer connectionParameters)
 {   
+    state = START;
     int retransmissions = connectionParameters.nRetransmissions; 
     int timeout = connectionParameters.timeout;
     
@@ -83,6 +84,7 @@ int llopen(LinkLayer connectionParameters)
             return -1;
         }
     }
+    alarm(0);
     if(retransmissions >0 ) return -1 ; 
     return 1;
 }
@@ -204,8 +206,8 @@ int llwrite(const unsigned char *buf, int bufSize)
 // LLREAD
 ////////////////////////////////////////////////
 int llread(unsigned char *packet)
-{
-    // TODO
+{   
+    
 
     return 0;
 }
