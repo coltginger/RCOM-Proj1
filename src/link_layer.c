@@ -29,9 +29,9 @@ enum {
     SET_END_FLAG, 
     UA_START_FLAG, 
     UA_A, 
-    UA_SET_C, 
-    UA_SET_BCC, 
-    UA_SET_END_FLAG, 
+    UA_C, 
+    UA_BCC, 
+    UA_END_FLAG, 
     END
 } OPEN_STATE
 
@@ -111,40 +111,42 @@ int llopenTx(OPEN_STATE *state){
         break; 
         case SET_END_FLAG:
             if(readByteSerialPort(&byte)){
-
+                if(byte == FLAG){
+                    state= UA_START_FLAG;
+                }
             }
         break;
         case UA_START_FLAG:
-            if(readByteSerialPort()){
-
+            if(readByteSerialPort(&byte)){
+                if(byte == A_Rx ){
+                    state = UA_A;
+                }
             }
         break;
         case UA_A:
-            if(){
-
+            if(readByteSerialPort(&byte)){
+                if(byte == UA){
+                    state = UA_C;
+                }
             }
-        break;
         case UA_SET_C:
-            if(){
-
+            if(readByteSerialPort(&byte)){
+                if(byte == UA ^ A_Rx){ 
+                     state = UA_BCC;
+                }
             }
         break;
         case UA_SET_BCC:
-            if(){
-
+            if(readByteSerialPort(&byte)){
+                if(byte == FLAg){
+                    state = UA_END_FLAG;
+                }
             }
         break;
-
-    UA_START_FLAG, 
-    UA_A, 
-    UA_SET_C, 
-    UA_SET_BCC, 
-    UA_SET_END_FLAG, 
-    END
-
-
     }
 }
+
+
 
 int llopenRx(OPEN_STATE state){
 
