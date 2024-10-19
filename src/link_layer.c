@@ -18,6 +18,7 @@
 #define REJ0 0x54
 #define REJ1 0x55
 #define DISC 0x0B
+#define ESC  0x7D
 
 // MISC
 typedef enum {
@@ -197,7 +198,33 @@ int llopenRx(OPEN_STATE state){
 ////////////////////////////////////////////////
 int llwrite(const unsigned char *buf, int bufSize)
 {
-    // TODO
+    unsigned char *frame = malloc(bufSize + 6);
+    frame[0] = FLAG;
+    frame[1] = A_Tx;
+    frame[2] = SET;
+    frame[3] = A_Tx ^ SET; // BCC1
+    memcpy(frame + 4, buf, bufSize);
+
+    unsigned char bcc2 = 0;
+    for (int i = 0; i < bufSize; i++)
+    {
+        bcc2 ^= buf[i];
+    }
+
+    int k = 4;
+    for (int i = 0; i < bufSize; i++)
+    {
+        if (buf[i] == FLAG || buf[i] == ESC)
+        {
+            frame[k++] = ESC;
+            frame[k++] = buf[i] ^ 0x20;
+            continue;
+        }
+        frame[k++] = buf[i];
+    }
+
+    frame[k++] = bcc2;
+    frame[k++] = FLAG;
 
     return 0;
 }
