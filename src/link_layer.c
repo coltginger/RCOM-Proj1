@@ -187,7 +187,6 @@ int llwrite(const unsigned char *buf, int bufSize)
     frame[1] = A_Tx;
     frame[2] = SET;
     frame[3] = A_Tx ^ SET; // BCC1
-    memcpy(frame + 4, buf, bufSize);
 
     unsigned char bcc2 = 0;
     for (int i = 0; i < bufSize; i++)
