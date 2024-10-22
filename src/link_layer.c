@@ -23,20 +23,15 @@
 // MISC
 typedef enum {
     START,
-    SET_START_FLAG, 
-    SET_A, 
-    SET_C, 
-    SET_BCC, 
-    SET_END_FLAG, 
-    UA_START_FLAG, 
-    UA_A, 
-    UA_C, 
-    UA_BCC, 
-    UA_END_FLAG, 
+    START_FLAG, 
+    A, 
+    C, 
+    BCC, 
+    END_FLAG,
     END
-} OPEN_STATE;
+} STATE;
 
-OPEN_STATE state = START; 
+STATE state = START; 
 
 #define FALSE 0
 #define TRUE 1
@@ -90,41 +85,41 @@ int llopen(LinkLayer connectionParameters)
     return 1;
 }
 
-int llopenTx(OPEN_STATE *state){
+int llopenTx(STATE *state){
     unsigned char byte; 
     switch(*state){
         case START:
             char* bytes = {FLAG, A_Tx, SET, A_Tx ^ SET, FLAG} ;
             if(writeBytesSerialPort(bytes,5)== -1 ) return -1;
-            state = SET_END_FLAG;
+            state = START_FLAG;
         break;
-        case SET_END_FLAG:
+        case START_FLAG:
             if(readByteSerialPort(&byte)){
                 if(byte == FLAG){
-                    state = UA_START_FLAG;
+                    state =A;
                 }
             }
-        case UA_START_FLAG:
+        case A:
             if(readByteSerialPort(&byte)){
                 if(byte == A_Rx ){
-                    state = UA_A;
+                    state = C;
                 }
             }
         break;
-        case UA_A:
+        case C:
             if(readByteSerialPort(&byte)){
                 if(byte == UA){
-                    state = UA_C;
+                    state = BCC;
                 }
             }
-        case UA_C:
+        case BCC:
             if(readByteSerialPort(&byte)){
                 if(byte == UA ^ A_Rx){ 
-                     state = UA_BCC;
+                     state = END_FLAG;
                 }
             }
         break;
-        case UA_BCC:
+        case END_FLAG:
             if(readByteSerialPort(&byte)){
                 if(byte == FLAG){
                     state = END;
@@ -134,56 +129,50 @@ int llopenTx(OPEN_STATE *state){
     }
 }
 
-int llopenRx(OPEN_STATE *state){
+int llopenRx(STATE *state){
     unsigned char byte; 
     switch(*state){
         case START:
             if(readByteSerialPort(&byte)){
                 if(byte == FLAG){
-                    state= SET_START_FLAG;
+                    state= START_FLAG;
                 }
             }
         break;
-        case SET_START_FLAG:
+        case START_FLAG:
             if(readByteSerialPort(&byte)){
                 if(byte == A_Tx ){
-                    state = SET_A;
+                    state = A;
                 }
             }
         break;
-        case SET_A: 
+        case A: 
             if(readByteSerialPort(&byte)){
                 if(byte == SET ){
-                    state = UA_A;
+                    state = C;
                 }
             }
         break;
-        case SET_C:
+        case C:
             if(readByteSerialPort(&byte)){
                 if(byte == A_Tx ^ SET){
-                    state = SET_BCC;
+                    state = BCC;
                 }
             }
         break;
-        case SET_BCC: 
+        case BCC: 
             if(readByteSerialPort(&byte)){
                 if(byte == FLAG){
-                    state = SET_END_FLAG;
+                    state = END_FLAG;
                 }
             }
         break; 
-        case SET_END_FLAG:
-            if(readByteSerialPort(&byte)){
-                if(byte == FLAG){
-                    state= UA_START_FLAG;
-                }
-            }
-        break;
-        case UA_START_FLAG:
+        case END_FLAG:
             char* bytes = {FLAG, A_Rx,UA,A_Rx ^ UA,FLAG };
-           if(writeBytesSerialPort(bytes,5)== -1 ) return -1; 
-           state = END;
+            if(writeBytesSerialPort(bytes,5)== -1 ) return -1; 
+            state = END;
         break;
+        
     }
 }
 
@@ -229,7 +218,24 @@ int llwrite(const unsigned char *buf, int bufSize)
 ////////////////////////////////////////////////
 int llread(unsigned char *packet)
 {   
-    
+    state = START;
+    unsigned char byte; 
+    while(state != END){
+        switch (state)
+        {
+        case START:
+            if(readByteSerialPort(&byte) < 0) return -1; 
+            if(byte != FLAG){
+                state = START; 
+            }
+            else{
+                state = A
+            } 
+            break;
+        
+        
+        }
+    }
 
     return 0;
 }
