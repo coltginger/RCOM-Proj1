@@ -13,10 +13,8 @@
 #define A_Rx 0x01
 #define SET  0x03
 #define UA   0x07
-#define RR0  0xAA
-#define RR1  0xAB
-#define REJ0 0x54
-#define REJ1 0x55
+#define RR(n)  ( 0xAA | n )
+#define REJ(n) ( 0x54 | n )
 #define DISC 0x0B
 #define ESC  0x7D
 
@@ -28,6 +26,7 @@ typedef enum {
     C, 
     BCC, 
     END_FLAG,
+    CHECK,
     END
 } STATE;
 
@@ -37,18 +36,22 @@ STATE state = START;
 #define TRUE 1
 
 int alarmEnabled = FALSE;
-int retransmissions;
-int alarmCount = 0; 
+int retransmissionLimit;
+int retransmissionTotalCount = 0;
+int retransmissionCurCount; 
+int timeout; 
+int I_number = 0;
 
 // Alarm function handler
 void alarmHandler(int signal)
 {
     alarmEnabled = FALSE;
-    retransmissions--;
+    retransmissionCurCount++;
+    retransmissionTotalCount++;
     state = START;
     
 
-    printf("Alarm #%d\n", alarmCount);
+    printf("Alarm #%d\n", retransmissionTotalCount);
 }
 
 
@@ -60,11 +63,12 @@ void alarmHandler(int signal)
 int llopen(LinkLayer connectionParameters)
 {   
     state = START;
-    int retransmissions = connectionParameters.nRetransmissions; 
-    int timeout = connectionParameters.timeout;
-    
+    retransmissionLimit = connectionParameters.nRetransmissions; 
+    retransmissionCurCount = 0; 
+    timeout = connectionParameters.timeout;
+    (void) signal(SIGALRM, alarmHandler);
     if ( openSerialPort(connectionParameters.serialPort, connectionParameters.baudRate) < 0) return -1;
-    while (retransmissions > 0 && state != END){
+    while ( retransmissionLimit > retransmissionCurCount && state != END){
         if( alarmEnabled == FALSE){
             alarm(timeout);
             alarmEnabled = TRUE;
@@ -81,7 +85,7 @@ int llopen(LinkLayer connectionParameters)
         }
     }
     alarm(0);
-    if(retransmissions >0 ) return -1 ; 
+    if(retransmissionLimit <= retransmissionCurCount) return -1 ; 
     return 1;
 }
 
@@ -94,33 +98,33 @@ int llopenTx(STATE *state){
             state = START_FLAG;
         break;
         case START_FLAG:
-            if(readByteSerialPort(&byte)){
+            if(readByteSerialPort(&byte) > 0){
                 if(byte == FLAG){
                     state =A;
                 }
             }
         case A:
-            if(readByteSerialPort(&byte)){
+            if(readByteSerialPort(&byte)> 0 ){
                 if(byte == A_Rx ){
                     state = C;
                 }
             }
         break;
         case C:
-            if(readByteSerialPort(&byte)){
+            if(readByteSerialPort(&byte) >0 ){
                 if(byte == UA){
                     state = BCC;
                 }
             }
         case BCC:
-            if(readByteSerialPort(&byte)){
+            if(readByteSerialPort(&byte) > 0){
                 if(byte == UA ^ A_Rx){ 
                      state = END_FLAG;
                 }
             }
         break;
         case END_FLAG:
-            if(readByteSerialPort(&byte)){
+            if(readByteSerialPort(&byte) > 0){
                 if(byte == FLAG){
                     state = END;
                 }
@@ -133,35 +137,35 @@ int llopenRx(STATE *state){
     unsigned char byte; 
     switch(*state){
         case START:
-            if(readByteSerialPort(&byte)){
+            if(readByteSerialPort(&byte)> 0){
                 if(byte == FLAG){
                     state= START_FLAG;
                 }
             }
         break;
         case START_FLAG:
-            if(readByteSerialPort(&byte)){
+            if(readByteSerialPort(&byte)> 0){
                 if(byte == A_Tx ){
                     state = A;
                 }
             }
         break;
         case A: 
-            if(readByteSerialPort(&byte)){
+            if(readByteSerialPort(&byte)> 0){
                 if(byte == SET ){
                     state = C;
                 }
             }
         break;
         case C:
-            if(readByteSerialPort(&byte)){
+            if(readByteSerialPort(&byte)> 0){
                 if(byte == A_Tx ^ SET){
                     state = BCC;
                 }
             }
         break;
         case BCC: 
-            if(readByteSerialPort(&byte)){
+            if(readByteSerialPort(&byte)> 0){
                 if(byte == FLAG){
                     state = END_FLAG;
                 }
@@ -181,35 +185,108 @@ int llopenRx(STATE *state){
 // LLWRITE
 ////////////////////////////////////////////////
 int llwrite(const unsigned char *buf, int bufSize)
-{
-    unsigned char *frame = malloc(bufSize + 6);
+{   
+    int frameSize = bufSize + 6;
+    retransmissionCurCount = 0; 
+    state = START; 
+    (void) signal(SIGALRM, alarmHandler);
+    unsigned char *frame = malloc(frameSize);
     frame[0] = FLAG;
     frame[1] = A_Tx;
-    frame[2] = SET;
+    frame[2] = I_number << 7; // I(0) / I(1)
     frame[3] = A_Tx ^ SET; // BCC1
 
     unsigned char bcc2 = 0;
-    for (int i = 0; i < bufSize; i++)
-    {
-        bcc2 ^= buf[i];
-    }
+    
 
     int k = 4;
     for (int i = 0; i < bufSize; i++)
     {
         if (buf[i] == FLAG || buf[i] == ESC)
-        {
+        {   
+            frameSize++;
+            frame = realloc(frame, frameSize);
             frame[k++] = ESC;
             frame[k++] = buf[i] ^ 0x20;
+            
             continue;
         }
-        frame[k++] = buf[i];
+        else{
+            frame[k++] = buf[i];
+        }
+        bcc2 ^= buf[i];
+        frameSize++;
+
     }
 
     frame[k++] = bcc2;
     frame[k++] = FLAG;
+    unsigned char byte; 
+    int success; 
+    while( retransmissionLimit > retransmissionCurCount && state != END){
+        if( alarmEnabled == FALSE){
+            alarm(timeout);
+            alarmEnabled = TRUE;
+        }
+        switch (state)
+        {
+        case START:
+            if(writeBytesSerialPort(frame, frameSize)< 0 ) return -1 ;
+            state = START_FLAG;
+            break;
+        
+        case START_FLAG:
+            if(readByteSerialPort(&byte) < 0 ) return -1 ; 
+            if(byte == FLAG){
+                state = A;
+            }
+            break;
+        case A:
+            if(readByteSerialPort(&byte) < 0 ) return -1 ; 
+            if(byte ==  A_Rx){
+                state = C;
+            } 
+            break;
+        case C: 
+            if(readByteSerialPort(&byte) < 0 ) return -1 ; 
+            if(byte == RR(I_number)){
+                success = TRUE; 
+                state = BCC;
+            }
+            else if (byte == REJ(I_number))
+            {
+                success = FALSE;
+                state = BCC;
+            }
+            break;
+        case BCC: 
+            if(readByteSerialPort(&byte) < 0) return -1 ; 
+            if( (success && byte == A_Rx ^ RR(I_number)) || ( !success && byte == A_Rx ^ REJ(I_number)))  {
+                state = END_FLAG; 
+            }
+            break;
+        case END_FLAG: 
+            if(readByteSerialPort(&byte) < 0 ) return -1; 
+            if(byte == FLAG){
+                state = CHECK;
+            }
+            break;
+        case CHECK: 
+            if(success){
+                state = END;
+            }
+            else{
+                state = START; 
+                alarm(timeout); // restart timer in case of rej resend
+            }
+            break;
+        }  
+    }
+    alarm(0);
+    if(retransmissionLimit <= retransmissionCurCount) return -1 ; 
+    I_number = !I_number; // change between I frame numbers (0/1)
+    return 1;
 
-    return 0;
 }
 
 ////////////////////////////////////////////////
@@ -228,7 +305,7 @@ int llread(unsigned char *packet)
                 state = START; 
             }
             else{
-                state = A
+                if(byte )
             } 
             break;
         
