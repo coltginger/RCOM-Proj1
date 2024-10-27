@@ -69,3 +69,25 @@ unsigned char* makeControlPacket(const int controlField, int fileSize, const cha
 }
 
 
+unsigned char* makeDataPacket(unsigned int sequenceNumber, int dataSize, unsigned char* data){
+
+    int L2 = dataSize >> 8 & 0xFF;
+    int L1 = dataSize & 0xFF;
+    unsigned char *dataPacket = malloc(4+dataSize);
+
+    int k = 0;
+    dataPacket[k++] = 0x02;                      // C
+    dataPacket[k++] = sequenceNumber;            // S
+    dataPacket[k++] = L2;                        // L2
+    dataPacket[k++] = L1;                        // L1
+
+    memcpy(dataPacket+k, data, (256*L2) + L1);   // P
+
+    return dataPacket;
+}
+
+unsigned char* makeData(FILE *file, int fileSize){
+    unsigned char* data = malloc(sizeof(unsigned char) * fileSize);
+    fread(data, sizeof(unsigned char), fileSize, file);
+    return data;
+}
