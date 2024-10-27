@@ -41,26 +41,31 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
     }
 }
 
-unsigned char* makeControlPacket(const int controlField, int length, const char* fileName){
+unsigned char* makeControlPacket(const int controlField, int fileSize, const char* fileName){
 
-    int L1 = sizeof(length);
+    int L1 = sizeof(fileSize);
     int L2 = strlen(fileName);
     unsigned char *controlPacket = malloc(5+L1+L2);
 
     int k = 0;
-    controlPacket[k++] = controlField;
-    controlPacket[k++] = 0x00;
-    controlPacket[k++] = L1;
 
-    for(int i = 0; i < L1; i++){
-        controlPacket[3+L1-i-1] = length & 0xFF;
-        length >>= 8;
+    // Tamanho do Ficheiro
+    controlPacket[k++] = controlField;     // C
+    controlPacket[k++] = 0x00;             // T1
+    controlPacket[k++] = L1;               // L1
+
+    for(int i = 0; i < L1; i++){           // V1
+        controlPacket[3+L1-i-1] = fileSize & 0xFF;
+        fileSize >>= 8;
     }
     k += L1;
-    controlPacket[k++] = 0x01;
-    controlPacket[k++] = L2;
 
-    memcpy(controlPacket+k, fileName, L2);
+    // Nome do Ficheiro
+    controlPacket[k++] = 0x01;             // T2
+    controlPacket[k++] = L2;               // L2
+    memcpy(controlPacket+k, fileName, L2); // V2
 
     return controlPacket;
 }
+
+
