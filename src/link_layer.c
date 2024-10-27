@@ -15,6 +15,7 @@
 #define UA   0x07
 #define RR(n)  ( 0xAA | n )
 #define REJ(n) ( 0x54 | n )
+#define I(n)   (n << 7)
 #define DISC 0x0B
 #define ESC  0x7D
 
@@ -26,7 +27,7 @@ typedef enum {
     C, 
     BCC, 
     END_FLAG,
-    CHECK,
+    DATA,
     END
 } STATE;
 
@@ -36,11 +37,14 @@ STATE state = START;
 #define TRUE 1
 
 int alarmEnabled = FALSE;
+// vairiables initialized in open
 int retransmissionLimit;
+int timeout; 
+// retransmission related
 int retransmissionTotalCount = 0;
 int retransmissionCurCount; 
-int timeout; 
-int I_number = 0;
+// I frame number 
+int I_number = 0; // current
 
 // Alarm function handler
 void alarmHandler(int signal)
@@ -85,6 +89,7 @@ int llopen(LinkLayer connectionParameters)
         }
     }
     alarm(0);
+    alarmEnabled = FALSE; 
     if(retransmissionLimit <= retransmissionCurCount) return -1 ; 
     return 1;
 }
@@ -193,7 +198,7 @@ int llwrite(const unsigned char *buf, int bufSize)
     unsigned char *frame = malloc(frameSize);
     frame[0] = FLAG;
     frame[1] = A_Tx;
-    frame[2] = I_number << 7; // I(0) / I(1)
+    frame[2] = I(I_number); 
     frame[3] = A_Tx ^ SET; // BCC1
 
     unsigned char bcc2 = 0;
@@ -202,24 +207,30 @@ int llwrite(const unsigned char *buf, int bufSize)
     int k = 4;
     for (int i = 0; i < bufSize; i++)
     {
-        if (buf[i] == FLAG || buf[i] == ESC)
+        if (buf[i] == FLAG || buf[i] == ESC) // byte stuffing for the data
         {   
             frameSize++;
             frame = realloc(frame, frameSize);
             frame[k++] = ESC;
-            frame[k++] = buf[i] ^ 0x20;
+            bcc2 ^= ESC;
+            frame[k] = buf[i] ^ 0x20;
             
-            continue;
         }
         else{
-            frame[k++] = buf[i];
+            frame[k] = buf[i];
         }
-        bcc2 ^= buf[i];
-        frameSize++;
-
+        bcc2 ^= frame[k]; 
+        k++;
     }
-
-    frame[k++] = bcc2;
+    if(bcc2 == ESC || bcc2 == FLAG){ // byte stuffing for the bcc2
+        frameSize++;
+        frame = realloc(frame, frameSize);
+        frame[k++] = ESC;
+        frame[k++] = bcc2 ^ 0x20;
+    }
+    else{
+        frame[k++] = bcc2;
+    }
     frame[k++] = FLAG;
     unsigned char byte; 
     int success; 
@@ -230,7 +241,7 @@ int llwrite(const unsigned char *buf, int bufSize)
         }
         switch (state)
         {
-        case START:
+        case START: // refactor later to make write seperate from reads 
             if(writeBytesSerialPort(frame, frameSize)< 0 ) return -1 ;
             state = START_FLAG;
             break;
@@ -249,7 +260,7 @@ int llwrite(const unsigned char *buf, int bufSize)
             break;
         case C: 
             if(readByteSerialPort(&byte) < 0 ) return -1 ; 
-            if(byte == RR(I_number)){
+            if(byte == RR(!I_number)){
                 success = TRUE; 
                 state = BCC;
             }
@@ -261,28 +272,29 @@ int llwrite(const unsigned char *buf, int bufSize)
             break;
         case BCC: 
             if(readByteSerialPort(&byte) < 0) return -1 ; 
-            if( (success && byte == A_Rx ^ RR(I_number)) || ( !success && byte == A_Rx ^ REJ(I_number)))  {
+            if( (success && byte == A_Rx ^ RR(!I_number)) || ( !success && byte == A_Rx ^ REJ(I_number)))  {
                 state = END_FLAG; 
             }
             break;
         case END_FLAG: 
             if(readByteSerialPort(&byte) < 0 ) return -1; 
             if(byte == FLAG){
-                state = CHECK;
-            }
-            break;
-        case CHECK: 
-            if(success){
+                if(success){
                 state = END;
             }
             else{
                 state = START; 
                 alarm(timeout); // restart timer in case of rej resend
             }
+            }
             break;
+        
         }  
     }
+    // cleanup
     alarm(0);
+    alarmEnabled=FALSE;
+    free(frame); 
     if(retransmissionLimit <= retransmissionCurCount) return -1 ; 
     I_number = !I_number; // change between I frame numbers (0/1)
     return 1;
@@ -294,26 +306,113 @@ int llwrite(const unsigned char *buf, int bufSize)
 ////////////////////////////////////////////////
 int llread(unsigned char *packet)
 {   
+    unsigned char *frame = malloc(1); // very unoptimized / unneccessary buffer, might remove later
+    int pos = 0; 
     state = START;
     unsigned char byte; 
-    while(state != END){
-        switch (state)
-        {
-        case START:
-            if(readByteSerialPort(&byte) < 0) return -1; 
-            if(byte != FLAG){
-                state = START; 
-            }
-            else{
-                if(byte )
-            } 
-            break;
-        
-        
-        }
-    }
+    int duplicate = FALSE; 
+    int escaped = FALSE; 
+    int bcc2 = 0; 
+    unsigned char c; 
 
-    return 0;
+    while(state != END){
+        int bytes = readByteSerialPort(&byte); 
+        if(bytes > 0){
+            switch (state)
+            {
+            case START:
+                if(byte == FLAG){
+                    state = START_FLAG; 
+                }
+            break; 
+            case START_FLAG: 
+                if(byte == A_Tx){
+                    state = A; 
+                }
+                if(byte == FLAG){
+                    state = START_FLAG;
+                }
+                else{
+                    state = START;
+                }
+            break; 
+            case A: // add exit condition here 
+                if(byte == I(I_number)){
+                    state = C;
+                    c = byte; 
+                }
+                else if(byte == I(!I_number)){
+                    state = C;
+                    c = byte; 
+                    duplicate = TRUE;
+                }
+                else if(byte == FLAG){
+                    state = START_FLAG;
+                }
+                else{
+                    state = START;
+                }
+            break; 
+            case C: 
+                if(byte == A_Tx ^ c){
+                    state = BCC; 
+                }
+                else if(byte == FLAG){
+                    state = START_FLAG;
+                }
+                else{
+                    state = START;
+                }
+            break; 
+            case BCC: 
+                if(byte != FLAG){
+                    if(byte == ESC){
+                        escaped = TRUE; 
+                    }
+                    else if(escaped){
+                        frame[pos++] = byte ^ 0x20; 
+                        bcc2 ^= byte ^ 0x20; 
+                        realloc(frame, pos + 1);
+                    }
+                    else{
+                        frame[pos++] = byte; 
+                        bcc2 ^= byte; 
+                        realloc(frame, pos + 1 );
+                    }
+                }
+                if(byte ==FLAG){ // 
+                    if(bcc2 == 0){ // dark magick to spare one more loop ( point of possible failure )
+                        if(duplicate){
+                            char* bytes = {FLAG, A_Rx,RR(I_number),A_Rx ^ RR(I_number),FLAG };
+                            
+                        }
+                        else{
+                            I_number = !I_number; // switch I frame
+                            char* bytes = {FLAG, A_Rx,RR(I_number),A_Rx ^ RR(I_number),FLAG };
+                            memcpy(packet, frame, pos - 1 ); 
+                            
+                        }
+                    }
+                    else{
+                        if(duplicate){
+                            char* bytes = {FLAG, A_Rx,RR(I_number),A_Rx ^ RR(I_number),FLAG };
+                        }
+                        else{
+                            char* bytes = {FLAG, A_Rx,REJ(I_number),A_Rx ^ REJ(I_number),FLAG };
+                        }
+                    }
+                    if(writeBytesSerialPort(bytes,5)== -1 ) return -1; 
+                    state = END; 
+                }
+            }
+            
+
+        }
+        
+    }
+    // cleanup
+    free(frame);
+    return pos - 1 ;
 }
 
 ////////////////////////////////////////////////
