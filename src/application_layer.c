@@ -24,16 +24,10 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
     }
 
     if(linkLayerRole == LlTx){
-        FILE *file = fopen(filename, "placeholder");
-        if(file == NULL){
-            printf("Failed to open file\n");
-            exit(-1);
-        }
-
-
-
+        // TODO
     }
     else if(linkLayerRole == LlRx){
+        // TODO
     }
     else{
         printf("Invalid role\n");
