@@ -64,6 +64,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             }
             seuqenceNumber++;
             i -= currentDataSize;
+            data += currentDataSize;
         }
 
         unsigned char* endControlPacket = makeControlPacket(3, fileSize, filename, &packetSize);
