@@ -40,8 +40,13 @@ int alarmEnabled = FALSE;
 // vairiables initialized in open
 int retransmissionLimit;
 int timeout; 
-// retransmission related
+LinkLayerRole role; 
+// stats
 int retransmissionTotalCount = 0;
+int timeoutCount = 0; 
+int frameSentCount = 0; 
+int frameRcvSuccessfullyCount = 0; 
+
 int retransmissionCurCount; 
 // I frame number 
 int I_number = 0; // current
@@ -52,6 +57,7 @@ void alarmHandler(int signal)
     alarmEnabled = FALSE;
     retransmissionCurCount++;
     retransmissionTotalCount++;
+    timeoutCount++;
     state = START;
     
 
@@ -68,6 +74,7 @@ int llopen(LinkLayer connectionParameters)
 {   
     state = START;
     retransmissionLimit = connectionParameters.nRetransmissions; 
+    role = connectionParameters.role; 
     retransmissionCurCount = 0; 
     timeout = connectionParameters.timeout;
     (void) signal(SIGALRM, alarmHandler);
@@ -77,7 +84,7 @@ int llopen(LinkLayer connectionParameters)
             alarm(timeout);
             alarmEnabled = TRUE;
         }
-        switch(connectionParameters.role){
+        switch(role){
             case  LlTx:
                 if( llopenTx(&state)) return -1;
             break; 
@@ -101,6 +108,7 @@ int llopenTx(STATE *state){
             char* bytes = {FLAG, A_Tx, SET, A_Tx ^ SET, FLAG} ;
             if(writeBytesSerialPort(bytes,5)== -1 ) return -1;
             state = START_FLAG;
+            frameSentCount++;
         break;
         case START_FLAG:
             if(readByteSerialPort(&byte) > 0){
@@ -132,6 +140,7 @@ int llopenTx(STATE *state){
             if(readByteSerialPort(&byte) > 0){
                 if(byte == FLAG){
                     state = END;
+                    frameRcvSuccessfullyCount++; 
                 }
             }
         break;
@@ -173,6 +182,7 @@ int llopenRx(STATE *state){
             if(readByteSerialPort(&byte)> 0){
                 if(byte == FLAG){
                     state = END_FLAG;
+                    frameRcvSuccessfullyCount++;
                 }
             }
         break; 
@@ -180,6 +190,7 @@ int llopenRx(STATE *state){
             char* bytes = {FLAG, A_Rx,UA,A_Rx ^ UA,FLAG };
             if(writeBytesSerialPort(bytes,5)== -1 ) return -1; 
             state = END;
+            frameSentCount++;
         break;
         
     }
@@ -244,6 +255,7 @@ int llwrite(const unsigned char *buf, int bufSize)
         case START: // refactor later to make write seperate from reads 
             if(writeBytesSerialPort(frame, frameSize)< 0 ) return -1 ;
             state = START_FLAG;
+            frameSentCount++;
             break;
         
         case START_FLAG:
@@ -274,6 +286,7 @@ int llwrite(const unsigned char *buf, int bufSize)
             if(readByteSerialPort(&byte) < 0) return -1 ; 
             if( (success && byte == A_Rx ^ RR(!I_number)) || ( !success && byte == A_Rx ^ REJ(I_number)))  {
                 state = END_FLAG; 
+                frameRcvSuccessfullyCount++; 
             }
             break;
         case END_FLAG: 
@@ -284,6 +297,7 @@ int llwrite(const unsigned char *buf, int bufSize)
             }
             else{
                 state = START; 
+                retransmissionTotalCount++;
                 alarm(timeout); // restart timer in case of rej resend
             }
             }
@@ -392,6 +406,7 @@ int llread(unsigned char *packet)
                             memcpy(packet, frame, pos - 1 ); 
                             
                         }
+                        frameRcvSuccessfullyCount++;
                     }
                     else{
                         if(duplicate){
@@ -403,6 +418,7 @@ int llread(unsigned char *packet)
                     }
                     if(writeBytesSerialPort(bytes,5)== -1 ) return -1; 
                     state = END; 
+                    frameSentCount++;
                 }
             }
             
@@ -419,9 +435,175 @@ int llread(unsigned char *packet)
 // LLCLOSE
 ////////////////////////////////////////////////
 int llclose(int showStatistics)
-{
-    // TODO
-
+{   
+    switch (role)
+    {
+    case LlTx:
+        if(llcloseTx() < 0) return -1;
+        break;
+    case LlRx: 
+        if(llcloseRx() < 0) return -1; 
+    }
+    if(showStatistics){
+        printf("======================================================\n");
+        printf("Total number of frames sent: %d\n",frameSentCount);
+        printf("Number of frames retransmissioned: %d\n",retransmissionTotalCount);
+        printf("in which %d were retransmissioned due to timeout",timeoutCount);
+        printf("Total number of frames received successfully: %d\n",frameRcvSuccessfullyCount);
+        printf("======================================================\n");
+    }
     int clstat = closeSerialPort();
     return clstat;
+}
+int llcloseTx(){
+    retransmissionCurCount = 0; 
+    (void) signal(SIGALRM, alarmHandler);
+    state = START;
+    unsigned char byte; 
+    while(retransmissionCurCount < retransmissionLimit && state != END){
+        if( alarmEnabled == FALSE){
+            alarm(timeout);
+            alarmEnabled = TRUE;
+            char* bytes = {FLAG, A_Tx,DISC,A_Tx ^ DISC,FLAG };
+            if(writeBytesSerialPort(bytes,5)== -1 ) return -1; 
+        }
+        int bytes = readByteSerialPort(&byte);
+        if(bytes > 0 ){
+            switch (state)
+            {
+            case START:
+                if(byte == FLAG){
+                    state = START_FLAG; 
+                }
+                break;
+            case START_FLAG: 
+                if(byte == A_Rx){
+                    state = A; 
+                }
+                else if ( byte == FLAG){
+                    state = START_FLAG; 
+                }
+                else{
+                    state = START;
+                }
+                break; 
+            case A: 
+                if(byte == DISC){
+                    state = C;
+                }
+                else if(byte == FLAG){
+                    state = START_FLAG; 
+                }
+                else {
+                    state = START; 
+                }
+                break; 
+            case C: 
+                if(byte == A_Rx ^ DISC){
+                    state = BCC; 
+                }
+                else if(byte == FLAG){
+                    state = START_FLAG;
+                }
+                else{
+                    state = START;
+                }
+                break;
+            case BCC: 
+                if(byte == FLAG){
+                    state = END; 
+                }
+                else{
+                    state = START; 
+                }
+            }
+        }
+
+    }
+    
+    // cleanup
+    alarm(0);
+    alarmEnabled=FALSE;
+    if(retransmissionLimit <= retransmissionCurCount) return -1 ; 
+    // send UA
+    char* bytes = {FLAG, A_Tx,UA,A_Tx ^ UA,FLAG };
+    if(writeBytesSerialPort(bytes,5)== -1 ) return -1; 
+    return 1; 
+}
+int llcloseRx(){
+    state = START;
+    unsigned char byte; 
+    int sndRound = FALSE; // if true, its checking the UA, else its checking the DISC
+    while (state != END){
+        int bytes = readByteSerialPort(&byte);
+        if(bytes > 0 ){
+            switch (state)
+            {
+            case START:
+                if(byte == FLAG){
+                    state = START_FLAG; 
+                }
+                else{
+                    sndRound = FALSE; 
+                }
+                break;
+            case START_FLAG: 
+                if(byte == A_Tx){
+                    state = A; 
+                }
+                else if ( byte == FLAG){
+                    state = START_FLAG; 
+                    sndRound = FALSE; 
+                }
+                else{
+                    state = START;
+                    sndRound = FALSE; 
+                }
+                break; 
+            case A: 
+                if((byte == DISC && !sndRound ) ||(byte == UA && sndRound ) ){
+                    state = C;
+                }
+                else if(byte == FLAG){
+                    state = START_FLAG; 
+                    sndRound = FALSE; 
+                }
+                else {
+                    state = START; 
+                    sndRound = FALSE; 
+                }
+                break; 
+            case C: 
+                if((byte == A_Tx ^ DISC && !sndRound ) || (byte == A_Tx ^ UA && sndRound ) ){
+                    state = BCC; 
+                }
+                else if(byte == FLAG){
+                    state = START_FLAG;
+                    sndRound = FALSE; 
+                }
+                else{
+                    state = START;
+                    sndRound = FALSE; 
+                }
+                break;
+            case BCC: 
+                if(byte == FLAG){
+                    if(sndRound){
+                        state = END;
+                    }
+                    else{
+                        state = START; 
+                        sndRound = TRUE; 
+                        char* bytes = {FLAG, A_Rx,DISC,A_Rx ^ DISC,FLAG };
+                        if(writeBytesSerialPort(bytes,5)== -1 ) return -1; 
+                    }
+                }
+                else{
+                    state = START; 
+                    sndRound = FALSE;
+                }
+            }
+        }
+    }
+    return 1; 
 }
