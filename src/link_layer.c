@@ -50,7 +50,8 @@ int frameRcvSuccessfullyCount = 0;
 
 int retransmissionCurCount;
 // I frame number
-int I_number = 0; // current
+int I_number = 0; 
+int incompleteIFrame = FALSE; // when in llopen, the exit condition is reading a correct header for I frame, in that case, llread must skip trying to read the header again for the first time
 
 // Alarm function handler
 void alarmHandler(int signal)
@@ -74,157 +75,187 @@ int llopen(LinkLayer connectionParameters)
     state = START;
     retransmissionLimit = connectionParameters.nRetransmissions;
     role = connectionParameters.role;
-    retransmissionCurCount = 0;
     timeout = connectionParameters.timeout;
-    (void)signal(SIGALRM, alarmHandler);
     if (openSerialPort(connectionParameters.serialPort, connectionParameters.baudRate) < 0)
         return -1;
+    switch (role)
+    {
+    case LlTx:
+        if (llopenTx())
+            return -1;
+        break;
+    case LlRx:
+        if (llopenRx())
+            return -1;
+        break;
+    }
+    return 1;
+}
+
+int llopenTx()
+{
+
+    retransmissionCurCount = 0;
+    (void)signal(SIGALRM, alarmHandler);
+    unsigned char byte;
     while (retransmissionLimit > retransmissionCurCount && state != END)
     {
         if (alarmEnabled == FALSE)
         {
             alarm(timeout);
             alarmEnabled = TRUE;
+            char *bytes = {FLAG, A_Tx, SET, A_Tx ^ SET, FLAG};
+            if (writeBytesSerialPort(bytes, 5) == -1)
+                return -1;
+            frameSentCount++;
         }
-        switch (role)
+        int bytes = readByteSerialPort(&byte);
+        if (bytes > 0)
         {
-        case LlTx:
-            if (llopenTx(&state))
-                return -1;
-            break;
-        case LlRx:
-            if (llopenRx(&state))
-                return -1;
-            break;
-        default:
-            return -1;
+            switch (state)
+            {
+            case START:
+                if (byte == FLAG)
+                {
+                    state = START_FLAG;
+                }
+                break;
+            case START_FLAG:
+                if (byte == A_Rx)
+                {
+                    state = A;
+                }
+                else if (byte != FLAG)
+                {
+                    state = START;
+                }
+                break;
+            case A:
+                if (byte == UA)
+                {
+                    state = C;
+                }
+                else if (byte == FLAG)
+                {
+                    state = START_FLAG;
+                }
+                else
+                {
+                    state = START;
+                }
+                break;
+            case C:
+                if (byte == A_Rx ^ UA)
+                {
+                    state = BCC;
+                }
+                else if (byte == FLAG)
+                {
+                    state = START_FLAG;
+                }
+                else
+                {
+                    state = START;
+                }
+                break;
+            case BCC:
+                if (byte == FLAG)
+                {
+                    state = END;
+                    frameRcvSuccessfullyCount++;
+                }
+                else
+                {
+                    state = START;
+                }
+            }
         }
     }
     alarm(0);
     alarmEnabled = FALSE;
-    if (retransmissionLimit <= retransmissionCurCount)
-        return -1;
-    return 1;
+    if(retransmissionLimit <= retransmissionCurCount) return -1; 
+    return 1; 
 }
 
-int llopenTx(STATE *state)
-{
+int llopenRx()
+{   
+    int I_frame; // if true then its checking for I frame else checking for SET
     unsigned char byte;
-    switch (*state)
-    {
-    case START:
-        char *bytes = {FLAG, A_Tx, SET, A_Tx ^ SET, FLAG};
-        if (writeBytesSerialPort(bytes, 5) == -1)
-            return -1;
-        state = START_FLAG;
-        frameSentCount++;
-        break;
-    case START_FLAG:
-        if (readByteSerialPort(&byte) > 0)
-        {
-            if (byte == FLAG)
+    while(state != END){
+        int bytes = readByteSerialPort(&byte);
+        if(bytes > 0){
+            switch (state)
             {
-                state = A;
+            case START:
+                if (byte == FLAG)
+                {   
+                    I_frame = FALSE;
+                    state = START_FLAG;
+                }
+            break;
+            case START_FLAG:
+                if(byte == A_Tx){
+                    state = A; 
+                }
+                else if(byte != FLAG){
+                    state = START;
+                }
+            case A:
+                if (byte == SET)
+                {
+                    state = C;
+                }
+                else if(byte == I(I_number)){
+                    I_frame = TRUE; 
+                    state = C;
+                }
+                else if (byte == FLAG)
+                {
+                    state = START_FLAG;
+                }
+                else
+                {
+                    state = START;
+                }
+                break;
+            case C:
+                if (((byte == A_Tx ^ SET) && !I_frame) || ((byte == A_Tx ^ I(I_number) && I_frame)))
+                {
+                    state = BCC;
+                }
+                else if (byte == FLAG)
+                {
+                    state = START_FLAG;
+                }
+                else
+                {
+                    state = START;
+                }
+                break;
+            case BCC:
+                if (byte == FLAG)
+                {   
+                    if(I_frame){
+                        state = END;
+                        incompleteIFrame = TRUE; 
+                    }
+                    else{
+                        char *bytes = {FLAG, A_Rx, UA, A_Rx ^ UA, FLAG};
+                        if (writeBytesSerialPort(bytes, 5) == -1) return -1;
+                        state = START;
+                        frameSentCount++;
+                    }
+                    
+                }
+                else
+                {
+                    state = START;
+                }
             }
         }
-    case A:
-        if (readByteSerialPort(&byte) > 0)
-        {
-            if (byte == A_Rx)
-            {
-                state = C;
-            }
-        }
-        break;
-    case C:
-        if (readByteSerialPort(&byte) > 0)
-        {
-            if (byte == UA)
-            {
-                state = BCC;
-            }
-        }
-    case BCC:
-        if (readByteSerialPort(&byte) > 0)
-        {
-            if (byte == UA ^ A_Rx)
-            {
-                state = END_FLAG;
-            }
-        }
-        break;
-    case END_FLAG:
-        if (readByteSerialPort(&byte) > 0)
-        {
-            if (byte == FLAG)
-            {
-                state = END;
-                frameRcvSuccessfullyCount++;
-            }
-        }
-        break;
     }
-}
-
-int llopenRx(STATE *state)
-{
-    unsigned char byte;
-    switch (*state)
-    {
-    case START:
-        if (readByteSerialPort(&byte) > 0)
-        {
-            if (byte == FLAG)
-            {
-                state = START_FLAG;
-            }
-        }
-        break;
-    case START_FLAG:
-        if (readByteSerialPort(&byte) > 0)
-        {
-            if (byte == A_Tx)
-            {
-                state = A;
-            }
-        }
-        break;
-    case A:
-        if (readByteSerialPort(&byte) > 0)
-        {
-            if (byte == SET)
-            {
-                state = C;
-            }
-        }
-        break;
-    case C:
-        if (readByteSerialPort(&byte) > 0)
-        {
-            if (byte == A_Tx ^ SET)
-            {
-                state = BCC;
-            }
-        }
-        break;
-    case BCC:
-        if (readByteSerialPort(&byte) > 0)
-        {
-            if (byte == FLAG)
-            {
-                state = END_FLAG;
-                frameRcvSuccessfullyCount++;
-            }
-        }
-        break;
-    case END_FLAG:
-        char *bytes = {FLAG, A_Rx, UA, A_Rx ^ UA, FLAG};
-        if (writeBytesSerialPort(bytes, 5) == -1)
-            return -1;
-        state = END;
-        frameSentCount++;
-        break;
-    }
+    return 1; 
+    
 }
 
 ////////////////////////////////////////////////
@@ -282,7 +313,8 @@ int llwrite(const unsigned char *buf, int bufSize)
         {
             alarm(timeout);
             alarmEnabled = TRUE;
-            if (writeBytesSerialPort(frame, frameSize) < 0) return -1;
+            if (writeBytesSerialPort(frame, frameSize) < 0)
+                return -1;
             frameSentCount++;
         }
         int bytes = readByteSerialPort(&byte);
@@ -301,8 +333,9 @@ int llwrite(const unsigned char *buf, int bufSize)
                 {
                     state = A;
                 }
-                else if(byte !=FLAG){
-                    state = START; 
+                else if (byte != FLAG)
+                {
+                    state = START;
                 }
                 break;
             case A:
@@ -316,11 +349,13 @@ int llwrite(const unsigned char *buf, int bufSize)
                     success = FALSE;
                     state = BCC;
                 }
-                else if(byte == FLAG){
+                else if (byte == FLAG)
+                {
                     state = START_FLAG;
                 }
-                else{
-                    state = START; 
+                else
+                {
+                    state = START;
                 }
                 break;
             case C:
@@ -328,11 +363,13 @@ int llwrite(const unsigned char *buf, int bufSize)
                 {
                     state = END_FLAG;
                 }
-                else if(byte == FLAG){
+                else if (byte == FLAG)
+                {
                     state = START_FLAG;
                 }
-                else{
-                    state = START; 
+                else
+                {
+                    state = START;
                 }
                 break;
             case BCC:
@@ -345,19 +382,19 @@ int llwrite(const unsigned char *buf, int bufSize)
                     else
                     {
                         state = START;
-                        if (writeBytesSerialPort(frame, frameSize) < 0) return -1;
+                        if (writeBytesSerialPort(frame, frameSize) < 0)
+                            return -1;
                         frameSentCount++;
                         retransmissionTotalCount++;
                         alarm(timeout); // restart timer in case of rej resend
                     }
                     frameRcvSuccessfullyCount++;
-
                 }
-                else{
-                    state = START; 
+                else
+                {
+                    state = START;
                 }
                 break;
-            
             }
         }
     }
@@ -366,9 +403,9 @@ int llwrite(const unsigned char *buf, int bufSize)
     alarmEnabled = FALSE;
     free(frame);
     if (retransmissionLimit <= retransmissionCurCount)
-        return -1;
+        return 0;
     I_number = !I_number; // change between I frame numbers (0/1)
-    return 1;
+    return frameSize;
 }
 
 ////////////////////////////////////////////////
@@ -386,7 +423,11 @@ int llread(unsigned char *packet)
     unsigned char c;
 
     while (state != END)
-    {
+    {   
+        if(incompleteIFrame){
+            state = BCC;
+            incompleteIFrame = FALSE;
+        }
         int bytes = readByteSerialPort(&byte);
         if (bytes > 0)
         {
@@ -412,7 +453,7 @@ int llread(unsigned char *packet)
                     state = START;
                 }
                 break;
-            case A: // add exit condition here
+            case A:
                 if (byte == I(I_number))
                 {
                     state = C;
@@ -512,6 +553,7 @@ int llread(unsigned char *packet)
 ////////////////////////////////////////////////
 int llclose(int showStatistics)
 {
+    state = START;
     switch (role)
     {
     case LlTx:
@@ -538,7 +580,7 @@ int llcloseTx()
 {
     retransmissionCurCount = 0;
     (void)signal(SIGALRM, alarmHandler);
-    state = START;
+
     unsigned char byte;
     while (retransmissionCurCount < retransmissionLimit && state != END)
     {
@@ -629,7 +671,6 @@ int llcloseTx()
 }
 int llcloseRx()
 {
-    state = START;
     unsigned char byte;
     int sndRound = FALSE; // if true, its checking the UA, else its checking the DISC
     while (state != END)

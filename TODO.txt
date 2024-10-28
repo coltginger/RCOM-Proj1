@@ -1,5 +1,3 @@
 Complete application layer 
-Add exit condition for receiver open ( received I frame) and llread ( received DISC frame ), rn will not work as intended
-Refactor write state machine / alarm  to only have writes in the alarm and reads in the state machine ( code organization )
-Make open more like close ( more robust solution )
+
 
