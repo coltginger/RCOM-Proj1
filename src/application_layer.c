@@ -25,7 +25,15 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
     }
 
     if(linkLayerRole == LlTx){
-        // TODO
+        FILE* file = fopen(filename, "rb");
+        if (file == NULL)
+        {
+            printf("Failed to open file\n");
+            exit(-1);
+        }
+
+        fseek(file, 0, SEEK_END);
+        int fileSize = ftell(file);
     }
     else if(linkLayerRole == LlRx){
         // TODO
@@ -86,3 +94,4 @@ unsigned char* makeData(FILE *file, int fileSize){
     fread(data, sizeof(unsigned char), fileSize, file);
     return data;
 }
+
