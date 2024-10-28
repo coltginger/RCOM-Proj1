@@ -18,7 +18,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
     connectionParameters.nRetransmissions = nTries;
     connectionParameters.timeout = timeout;
 
-    if (llopen(connectionParameters) < 0)
+    if (llopen(connectionParameters) == -1)
     {
         printf("Failed to establish connection\n");
         exit(-1);
@@ -32,8 +32,48 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             exit(-1);
         }
 
-        fseek(file, 0, SEEK_END);
-        int fileSize = ftell(file);
+        int pos = ftell(file);
+        fseek(file,0L,SEEK_END);
+        long int fileSize = ftell(file)-pos;
+        fseek(file,prev,SEEK_SET);
+
+        int packetSize;
+        unsigned char* startControlPacket = makeControlPacket(1, fileSize, filename, &packetSize);
+
+        if (llwrite(startControlPacket, packetSize) == -1)
+        {
+            printf("Failed to send control packet\n");
+            exit(-1);
+        }
+
+        unsigned char seuqenceNumber = 0;
+        unsigned char* data = makeData(file, fileSize);
+        int i = fileSize;
+        while(i > 0)
+        {
+            unsigned char* currentData;
+            int currentDataSize = (i > MAX_PAYLOAD_SIZE) ? MAX_PAYLOAD_SIZE : i;
+            memcpy(currentData, data, currentDataSize);
+
+            unsigned char* dataPacket = makeDataPacket(seuqenceNumber, currentDataSize, currentData);
+
+            if (llwrite(dataPacket, currentDataSize+4) == -1)
+            {
+                printf("Failed to send data packet\n");
+                exit(-1);
+            }
+            seuqenceNumber++;
+            i -= currentDataSize;
+        }
+
+        unsigned char* endControlPacket = makeControlPacket(3, fileSize, filename, &packetSize);
+        if(llwrite(endControlPacket, packetSize) == -1)
+        {
+            printf("Failed to send end control packet\n");
+            exit(-1);
+        }
+        llclose(1);
+        break;
     }
     else if(linkLayerRole == LlRx){
         // TODO
@@ -44,7 +84,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
     }
 }
 
-unsigned char* makeControlPacket(const int controlField, int fileSize, const char* fileName){
+unsigned char* makeControlPacket(const int controlField, int fileSize, const char* fileName, int packetSize){
 
     int L1 = sizeof(fileSize);
     int L2 = strlen(fileName);
@@ -68,6 +108,7 @@ unsigned char* makeControlPacket(const int controlField, int fileSize, const cha
     controlPacket[k++] = L2;               // L2
     memcpy(controlPacket+k, fileName, L2); // V2
 
+    packetSize = 5+L1+L2;
     return controlPacket;
 }
 
