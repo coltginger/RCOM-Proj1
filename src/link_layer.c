@@ -6,6 +6,8 @@
 #include <unistd.h>
 #include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 // MACROS
 #define FLAG 0x7E
@@ -27,8 +29,6 @@ typedef enum
     A,
     C,
     BCC,
-    END_FLAG,
-    DATA,
     END
 } STATE;
 
@@ -50,7 +50,7 @@ int frameRcvSuccessfullyCount = 0;
 
 int retransmissionCurCount;
 // I frame number
-int I_number = 0; 
+int I_number = 0;
 int incompleteIFrame = FALSE; // when in llopen, the exit condition is reading a correct header for I frame, in that case, llread must skip trying to read the header again for the first time
 
 // Alarm function handler
@@ -70,28 +70,6 @@ void alarmHandler(int signal)
 ////////////////////////////////////////////////
 // LLOPEN
 ////////////////////////////////////////////////
-int llopen(LinkLayer connectionParameters)
-{
-    state = START;
-    retransmissionLimit = connectionParameters.nRetransmissions;
-    role = connectionParameters.role;
-    timeout = connectionParameters.timeout;
-    if (openSerialPort(connectionParameters.serialPort, connectionParameters.baudRate) < 0)
-        return -1;
-    switch (role)
-    {
-    case LlTx:
-        if (llopenTx())
-            return -1;
-        break;
-    case LlRx:
-        if (llopenRx())
-            return -1;
-        break;
-    }
-    return 1;
-}
-
 int llopenTx()
 {
 
@@ -104,8 +82,8 @@ int llopenTx()
         {
             alarm(timeout);
             alarmEnabled = TRUE;
-            char *bytes = {FLAG, A_Tx, SET, A_Tx ^ SET, FLAG};
-            if (writeBytesSerialPort(bytes, 5) == -1)
+            unsigned char sFrame[] = {FLAG, A_Tx, SET, A_Tx ^ SET, FLAG};
+            if (writeBytesSerialPort(sFrame, 5) == -1)
                 return -1;
             frameSentCount++;
         }
@@ -145,7 +123,7 @@ int llopenTx()
                 }
                 break;
             case C:
-                if (byte == A_Rx ^ UA)
+                if (byte == (A_Rx ^ UA))
                 {
                     state = BCC;
                 }
@@ -168,36 +146,44 @@ int llopenTx()
                 {
                     state = START;
                 }
+                break;
+            default:
+                break;
             }
         }
     }
     alarm(0);
     alarmEnabled = FALSE;
-    if(retransmissionLimit <= retransmissionCurCount) return -1; 
-    return 1; 
+    if (retransmissionLimit <= retransmissionCurCount)
+        return -1;
+    return 1;
 }
 
 int llopenRx()
-{   
+{
     int I_frame; // if true then its checking for I frame else checking for SET
     unsigned char byte;
-    while(state != END){
+    while (state != END)
+    {
         int bytes = readByteSerialPort(&byte);
-        if(bytes > 0){
+        if (bytes > 0)
+        {
             switch (state)
             {
             case START:
                 if (byte == FLAG)
-                {   
+                {
                     I_frame = FALSE;
                     state = START_FLAG;
                 }
-            break;
+                break;
             case START_FLAG:
-                if(byte == A_Tx){
-                    state = A; 
+                if (byte == A_Tx)
+                {
+                    state = A;
                 }
-                else if(byte != FLAG){
+                else if (byte != FLAG)
+                {
                     state = START;
                 }
             case A:
@@ -205,8 +191,9 @@ int llopenRx()
                 {
                     state = C;
                 }
-                else if(byte == I(I_number)){
-                    I_frame = TRUE; 
+                else if (byte == I(I_number))
+                {
+                    I_frame = TRUE;
                     state = C;
                 }
                 else if (byte == FLAG)
@@ -219,7 +206,7 @@ int llopenRx()
                 }
                 break;
             case C:
-                if (((byte == A_Tx ^ SET) && !I_frame) || ((byte == A_Tx ^ I(I_number) && I_frame)))
+                if (((byte == (A_Tx ^ SET)) && !I_frame) || ((byte == (A_Tx ^ I(I_number)) && I_frame)))
                 {
                     state = BCC;
                 }
@@ -234,30 +221,55 @@ int llopenRx()
                 break;
             case BCC:
                 if (byte == FLAG)
-                {   
-                    if(I_frame){
+                {
+                    if (I_frame)
+                    {
                         state = END;
-                        incompleteIFrame = TRUE; 
+                        incompleteIFrame = TRUE;
                     }
-                    else{
-                        char *bytes = {FLAG, A_Rx, UA, A_Rx ^ UA, FLAG};
-                        if (writeBytesSerialPort(bytes, 5) == -1) return -1;
+                    else
+                    {
+                        unsigned char sFrame[] = {FLAG, A_Rx, UA, A_Rx ^ UA, FLAG};
+                        if (writeBytesSerialPort(sFrame, 5) == -1)
+                            return -1;
                         state = START;
                         frameSentCount++;
                     }
-                    
                 }
                 else
                 {
                     state = START;
                 }
+                break;
+            default:
+                return -1;
             }
         }
     }
-    return 1; 
-    
+    return 1;
 }
 
+int llopen(LinkLayer connectionParameters)
+{
+    state = START;
+    retransmissionLimit = connectionParameters.nRetransmissions;
+    role = connectionParameters.role;
+    timeout = connectionParameters.timeout;
+    if (openSerialPort(connectionParameters.serialPort, connectionParameters.baudRate) < 0)
+        return -1;
+    switch (role)
+    {
+    case LlTx:
+        if (llopenTx())
+            return -1;
+        break;
+    case LlRx:
+        if (llopenRx())
+            return -1;
+        break;
+    }
+    return 1;
+}
 ////////////////////////////////////////////////
 // LLWRITE
 ////////////////////////////////////////////////
@@ -359,9 +371,9 @@ int llwrite(const unsigned char *buf, int bufSize)
                 }
                 break;
             case C:
-                if ((success && byte == A_Rx ^ RR(!I_number)) || (!success && byte == A_Rx ^ REJ(I_number)))
+                if ((success && byte == (A_Rx ^ RR(!I_number))) || (!success && byte == (A_Rx ^ REJ(I_number))))
                 {
-                    state = END_FLAG;
+                    state = BCC;
                 }
                 else if (byte == FLAG)
                 {
@@ -395,6 +407,8 @@ int llwrite(const unsigned char *buf, int bufSize)
                     state = START;
                 }
                 break;
+            default:
+                return -1;
             }
         }
     }
@@ -423,8 +437,9 @@ int llread(unsigned char *packet)
     unsigned char c;
 
     while (state != END)
-    {   
-        if(incompleteIFrame){
+    {
+        if (incompleteIFrame)
+        {
             state = BCC;
             incompleteIFrame = FALSE;
         }
@@ -475,7 +490,7 @@ int llread(unsigned char *packet)
                 }
                 break;
             case C:
-                if (byte == A_Tx ^ c)
+                if (byte == (A_Tx ^ c))
                 {
                     state = BCC;
                 }
@@ -499,27 +514,30 @@ int llread(unsigned char *packet)
                     {
                         frame[pos++] = byte ^ 0x20;
                         bcc2 ^= byte ^ 0x20;
-                        realloc(frame, pos + 1);
+                        frame = realloc(frame, pos + 1);
                     }
                     else
                     {
                         frame[pos++] = byte;
                         bcc2 ^= byte;
-                        realloc(frame, pos + 1);
+                        frame = realloc(frame, pos + 1);
                     }
                 }
                 if (byte == FLAG)
                 { //
+                    unsigned char sFrame[5];
                     if (bcc2 == 0)
                     { // dark magick to spare one more loop ( point of possible failure )
                         if (duplicate)
                         {
-                            char *bytes = {FLAG, A_Rx, RR(I_number), A_Rx ^ RR(I_number), FLAG};
+                            unsigned char temp[] = {FLAG, A_Rx, RR(I_number), A_Rx ^ RR(I_number), FLAG};
+                            memcpy(sFrame, temp, 5);
                         }
                         else
                         {
                             I_number = !I_number; // switch I frame
-                            char *bytes = {FLAG, A_Rx, RR(I_number), A_Rx ^ RR(I_number), FLAG};
+                            unsigned char temp[] = {FLAG, A_Rx, RR(I_number), A_Rx ^ RR(I_number), FLAG};
+                            memcpy(sFrame, temp, 5);
                             memcpy(packet, frame, pos - 1);
                         }
                         frameRcvSuccessfullyCount++;
@@ -528,18 +546,23 @@ int llread(unsigned char *packet)
                     {
                         if (duplicate)
                         {
-                            char *bytes = {FLAG, A_Rx, RR(I_number), A_Rx ^ RR(I_number), FLAG};
+                            unsigned char temp[] = {FLAG, A_Rx, RR(I_number), A_Rx ^ RR(I_number), FLAG};
+                            memcpy(sFrame, temp, 5);
                         }
                         else
                         {
-                            char *bytes = {FLAG, A_Rx, REJ(I_number), A_Rx ^ REJ(I_number), FLAG};
+                            unsigned char temp[] = {FLAG, A_Rx, REJ(I_number), A_Rx ^ REJ(I_number), FLAG};
+                            memcpy(sFrame, temp, 5);
                         }
                     }
-                    if (writeBytesSerialPort(bytes, 5) == -1)
+                    if (writeBytesSerialPort(sFrame, 5) == -1)
                         return -1;
                     state = END;
                     frameSentCount++;
                 }
+                break;
+            default:
+                return -1;
             }
         }
     }
@@ -551,31 +574,6 @@ int llread(unsigned char *packet)
 ////////////////////////////////////////////////
 // LLCLOSE
 ////////////////////////////////////////////////
-int llclose(int showStatistics)
-{
-    state = START;
-    switch (role)
-    {
-    case LlTx:
-        if (llcloseTx() < 0)
-            return -1;
-        break;
-    case LlRx:
-        if (llcloseRx() < 0)
-            return -1;
-    }
-    if (showStatistics)
-    {
-        printf("======================================================\n");
-        printf("Total number of frames sent: %d\n", frameSentCount);
-        printf("Number of frames retransmissioned: %d\n", retransmissionTotalCount);
-        printf("in which %d were retransmissioned due to timeout", timeoutCount);
-        printf("Total number of frames received successfully: %d\n", frameRcvSuccessfullyCount);
-        printf("======================================================\n");
-    }
-    int clstat = closeSerialPort();
-    return clstat;
-}
 int llcloseTx()
 {
     retransmissionCurCount = 0;
@@ -588,8 +586,8 @@ int llcloseTx()
         {
             alarm(timeout);
             alarmEnabled = TRUE;
-            char *bytes = {FLAG, A_Tx, DISC, A_Tx ^ DISC, FLAG};
-            if (writeBytesSerialPort(bytes, 5) == -1)
+            unsigned char sFrame[] = {FLAG, A_Tx, DISC, A_Tx ^ DISC, FLAG};
+            if (writeBytesSerialPort(sFrame, 5) == -1)
                 return -1;
         }
         int bytes = readByteSerialPort(&byte);
@@ -632,7 +630,7 @@ int llcloseTx()
                 }
                 break;
             case C:
-                if (byte == A_Rx ^ DISC)
+                if (byte == (A_Rx ^ DISC))
                 {
                     state = BCC;
                 }
@@ -654,6 +652,9 @@ int llcloseTx()
                 {
                     state = START;
                 }
+                break;
+            default:
+                return -1;
             }
         }
     }
@@ -664,8 +665,8 @@ int llcloseTx()
     if (retransmissionLimit <= retransmissionCurCount)
         return -1;
     // send UA
-    char *bytes = {FLAG, A_Tx, UA, A_Tx ^ UA, FLAG};
-    if (writeBytesSerialPort(bytes, 5) == -1)
+    unsigned char sFrame[] = {FLAG, A_Tx, UA, A_Tx ^ UA, FLAG};
+    if (writeBytesSerialPort(sFrame, 5) == -1)
         return -1;
     return 1;
 }
@@ -723,7 +724,7 @@ int llcloseRx()
                 }
                 break;
             case C:
-                if ((byte == A_Tx ^ DISC && !sndRound) || (byte == A_Tx ^ UA && sndRound))
+                if ((byte == (A_Tx ^ DISC) && !sndRound) || (byte == (A_Tx ^ UA) && sndRound))
                 {
                     state = BCC;
                 }
@@ -749,8 +750,8 @@ int llcloseRx()
                     {
                         state = START;
                         sndRound = TRUE;
-                        char *bytes = {FLAG, A_Rx, DISC, A_Rx ^ DISC, FLAG};
-                        if (writeBytesSerialPort(bytes, 5) == -1)
+                        unsigned char sFrame[] = {FLAG, A_Rx, DISC, A_Rx ^ DISC, FLAG};
+                        if (writeBytesSerialPort(sFrame, 5) == -1)
                             return -1;
                     }
                 }
@@ -759,8 +760,37 @@ int llcloseRx()
                     state = START;
                     sndRound = FALSE;
                 }
+                break;
+            default:
+                return -1;
             }
         }
     }
     return 1;
+}
+
+int llclose(int showStatistics)
+{
+    state = START;
+    switch (role)
+    {
+    case LlTx:
+        if (llcloseTx() < 0)
+            return -1;
+        break;
+    case LlRx:
+        if (llcloseRx() < 0)
+            return -1;
+    }
+    if (showStatistics)
+    {
+        printf("======================================================\n");
+        printf("Total number of frames sent: %d\n", frameSentCount);
+        printf("Number of frames retransmissioned: %d\n", retransmissionTotalCount);
+        printf("in which %d were retransmissioned due to timeout", timeoutCount);
+        printf("Total number of frames received successfully: %d\n", frameRcvSuccessfullyCount);
+        printf("======================================================\n");
+    }
+    int clstat = closeSerialPort();
+    return clstat;
 }
