@@ -34,8 +34,8 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
         int pos = ftell(file);
         fseek(file,0L,SEEK_END);
-        long int fileSize = ftell(file)-pos;
-        fseek(file,prev,SEEK_SET);
+        long int fileSize = ftell(file)-pos; // wont a long be cut off by makeControlPacket (cast to int)
+        fseek(file,0L,SEEK_SET);
 
         int packetSize;
         unsigned char* startControlPacket = makeControlPacket(1, fileSize, filename, &packetSize);
@@ -73,16 +73,68 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             printf("Failed to send end control packet\n");
             exit(-1);
         }
-        llclose(1);
-        break;
+        
     }
     else if(linkLayerRole == LlRx){
-        // TODO
+        FILE* file = fopen(filename, "wb");
+        if (file == NULL)
+        {
+            printf("Failed to open file\n");
+            exit(-1);
+        }
+        int pointer = 0; 
+        int loop = TRUE; 
+        while(loop){
+            unsigned char packet[MAX_PAYLOAD_SIZE];
+            int bytes = llread(packet);
+            if(bytes == -1){
+                printf("Failed to read\n");
+                exit(-1);
+            }
+            switch (packet[0])
+            {
+            case 1:
+                unsigned char fileSizeSize = packet[2];
+                long int fileSize = 0; 
+                for(int i = 0; i < fileSizeSize;i++){
+                    fileSize = (fileSize << 8) | packet[3+i];
+                }
+                unsigned char fileNameSize = packet[3+fileSizeSize];
+                unsigned char *fileName = malloc(fileNameSize);
+                memcpy(fileName,packet+5+fileSizeSize,fileNameSize);
+                printf("Recieving file(%s) of size:%d",fileName,fileSize);
+                free(fileName);
+                
+                break;
+            
+            case 2: 
+                int size = 256*packet[2] + packet[3];
+                fwrite(packet+4,sizeof(unsigned char),size,file);
+
+            break; 
+            case 3: 
+                unsigned char fileSizeSize = packet[2];
+                long int fileSize = 0; 
+                for(int i = 0; i < fileSizeSize;i++){
+                    fileSize = (fileSize << 8) | packet[3+i];
+                }
+                unsigned char fileNameSize = packet[3+fileSizeSize];
+                unsigned char *fileName = malloc(fileNameSize);
+                memcpy(fileName,packet+5+fileSizeSize,fileNameSize);
+                printf("Completed recieving file(%s) of size:%d",fileName,fileSize);
+                free(fileName);
+                loop = FALSE;
+            break; 
+            }
+        }
+        
     }
     else{
         printf("Invalid role\n");
         exit(-1);
     }
+    llclose(1);
+
 }
 
 unsigned char* makeControlPacket(const int controlField, int fileSize, const char* fileName, int packetSize){
