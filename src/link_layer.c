@@ -88,20 +88,25 @@ int llopenTx()
             frameSentCount++;
         }
         int bytes = readByteSerialPort(&byte);
+        
         if (bytes > 0)
-        {
+        {   
+            printf("byte: 0x%02x\n",byte);
             switch (state)
             {
             case START:
                 if (byte == FLAG)
                 {
                     state = START_FLAG;
+                    printf("flag\n");
+                    
                 }
                 break;
             case START_FLAG:
                 if (byte == A_Rx)
                 {
                     state = A;
+                    printf("A\n");
                 }
                 else if (byte != FLAG)
                 {
@@ -112,6 +117,7 @@ int llopenTx()
                 if (byte == UA)
                 {
                     state = C;
+                    printf("C");
                 }
                 else if (byte == FLAG)
                 {
@@ -126,6 +132,7 @@ int llopenTx()
                 if (byte == (A_Rx ^ UA))
                 {
                     state = BCC;
+                    printf("bcc\n");
                 }
                 else if (byte == FLAG)
                 {
@@ -141,6 +148,7 @@ int llopenTx()
                 {
                     state = END;
                     frameRcvSuccessfullyCount++;
+                    printf("end\n");
                 }
                 else
                 {
@@ -148,12 +156,14 @@ int llopenTx()
                 }
                 break;
             default:
+                return -1;
                 break;
             }
         }
     }
     alarm(0);
     alarmEnabled = FALSE;
+    printf("retr:%d\n",retransmissionCurCount);
     if (retransmissionLimit <= retransmissionCurCount)
         return -1;
     return 1;
@@ -167,7 +177,8 @@ int llopenRx()
     {
         int bytes = readByteSerialPort(&byte);
         if (bytes > 0)
-        {
+        {   
+            printf("byte : 0x%02x\n",byte);
             switch (state)
             {
             case START:
@@ -175,26 +186,31 @@ int llopenRx()
                 {
                     I_frame = FALSE;
                     state = START_FLAG;
+                    printf("flag\n");
                 }
                 break;
             case START_FLAG:
                 if (byte == A_Tx)
                 {
                     state = A;
+                    printf("A\n");
                 }
                 else if (byte != FLAG)
                 {
                     state = START;
                 }
+                break;
             case A:
                 if (byte == SET)
                 {
                     state = C;
+                    printf("c\n");
                 }
                 else if (byte == I(I_number))
                 {
                     I_frame = TRUE;
                     state = C;
+                    printf("i\n");
                 }
                 else if (byte == FLAG)
                 {
@@ -209,6 +225,7 @@ int llopenRx()
                 if (((byte == (A_Tx ^ SET)) && !I_frame) || ((byte == (A_Tx ^ I(I_number)) && I_frame)))
                 {
                     state = BCC;
+                    printf("bcc\n");
                 }
                 else if (byte == FLAG)
                 {
@@ -223,12 +240,14 @@ int llopenRx()
                 if (byte == FLAG)
                 {
                     if (I_frame)
-                    {
+                    {   
                         state = END;
                         incompleteIFrame = TRUE;
+                        printf("I complete\n");
                     }
                     else
                     {
+                        printf("con\n");
                         unsigned char sFrame[] = {FLAG, A_Rx, UA, A_Rx ^ UA, FLAG};
                         if (writeBytesSerialPort(sFrame, 5) == -1)
                             return -1;
@@ -260,11 +279,11 @@ int llopen(LinkLayer connectionParameters)
     switch (role)
     {
     case LlTx:
-        if (llopenTx())
+        if (llopenTx() == -1)
             return -1;
         break;
     case LlRx:
-        if (llopenRx())
+        if (llopenRx() == -1)
             return -1;
         break;
     }
@@ -283,7 +302,8 @@ int llwrite(const unsigned char *buf, int bufSize)
     frame[0] = FLAG;
     frame[1] = A_Tx;
     frame[2] = I(I_number);
-    frame[3] = A_Tx ^ SET; // BCC1
+    printf("I number sent: 0x%02X\n",frame[2]);
+    frame[3] = A_Tx ^ I(I_number); // BCC1
 
     unsigned char bcc2 = 0;
 
