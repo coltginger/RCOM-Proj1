@@ -121,6 +121,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             sequenceNumber++;
             i -= currentDataSize;
             data += currentDataSize;
+            free(dataPacket);
         }
 
         unsigned char* endControlPacket = makeControlPacket(3, fileSize, filename, &packetSize);
@@ -140,6 +141,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         }
         int loop = TRUE; 
         while(loop){
+            printf("in loop\n");
             unsigned char packet[MAX_PAYLOAD_SIZE];
             int bytes = llread(packet);
             if(bytes == -1){
@@ -178,14 +180,16 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                 for(int i = 0; i < fileSizeSize;i++){
                     fileSize = (fileSize << 8) | packet[3+i];
                 }
-                unsigned char fileNameSize = packet[3+fileSizeSize];
-                unsigned char *fileName = malloc(fileNameSize);
+                unsigned char fileNameSize = packet[4+fileSizeSize];
+                //printf("file name size : %d",fileNameSize);
+                unsigned char *fileName = malloc(fileNameSize+1);
                 memcpy(fileName,packet+5+fileSizeSize,fileNameSize);
-                printf("Completed recieving file(%s) of size:%ld\n",fileName,fileSize);
+                fileName[fileNameSize] = '\0'; 
+                printf("Recieving file(%s) of size:%ld\n",fileName,fileSize);
                 free(fileName);
                 loop = FALSE;
             }
-                
+             
             break; 
             }
         }
@@ -195,6 +199,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         printf("Invalid role\n");
         exit(-1);
     }
+    printf("outside\n");
     llclose(1);
 
 }

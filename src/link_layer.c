@@ -312,16 +312,23 @@ int llwrite(const unsigned char *buf, int bufSize)
             frameSize++;
             frame = realloc(frame, frameSize);
             frame[k++] = ESC;
-            bcc2 ^= ESC;
+            
             frame[k] = buf[i] ^ 0x20;
+            
         }
         else
         {
             frame[k] = buf[i];
+            
         }
-        bcc2 ^= frame[k];
+        
         k++;
+        
     }
+    for(int i = 0 ; i < bufSize; i++){
+        bcc2  ^= buf[i];
+    } 
+    
     if (bcc2 == ESC || bcc2 == FLAG)
     { // byte stuffing for the bcc2
         frameSize++;
@@ -460,7 +467,7 @@ int llwrite(const unsigned char *buf, int bufSize)
 ////////////////////////////////////////////////
 int llread(unsigned char *packet)
 {
-    unsigned char *frame = malloc(1); // very unoptimized / unneccessary buffer, might remove later
+    unsigned char *frame = malloc(2*MAX_PAYLOAD_SIZE + 7); // very unoptimized / unneccessary buffer, might remove later
     int pos = 0;
     state = START;
     unsigned char byte;
@@ -468,7 +475,7 @@ int llread(unsigned char *packet)
     int escaped = FALSE;
     unsigned char bcc2 = 0;
     unsigned char c;
-
+    unsigned char *destuffedBuffer = malloc(2*MAX_PAYLOAD_SIZE + 7);
     while (state != END)
     {
         if (incompleteIFrame)
@@ -546,23 +553,23 @@ int llread(unsigned char *packet)
                 }
                 break;
             case BCC:
+                if(pos == 2*MAX_PAYLOAD_SIZE + 7){
+                    state = START; 
+                }
                 if (byte != FLAG)
                 {   
                     frame[pos++] = byte; 
-                    frame = realloc(frame, pos + 1); 
                 }
                 if (byte == FLAG)
                 {   
                     printf("\nend of packet\n");
                     unsigned char sFrame[5];
-                    unsigned char *destuffedBuffer = malloc(pos);
-                    unsigned char packetBcc = frame[pos - 1 ];
                     int destuffedPointer = 0; 
                     for( int i = 0; i < pos; i++){
                         printf("0x%02x ", frame[i]);
                     }
                     printf("\n");
-                    for(int i = 0 ; i < pos - 1; i++){ // destuffing 
+                    for(int i = 0 ; i < pos ; i++){ // destuffing 
                         if (frame[i] == ESC)
                         {
                             escaped = TRUE;
@@ -581,27 +588,34 @@ int llread(unsigned char *packet)
                         printf("0x%02x ",destuffedBuffer[i]);
                     }
                     printf("\n");
-                    for( int i = 0; i < destuffedPointer; i++){
+                    for( int i = 0; i < destuffedPointer - 1; i++){
                         bcc2 ^= destuffedBuffer[i];
                     }
-                    printf("bcc2: 0x%02x\n",frame[pos- 1]);
+                    printf("bcc2: 0x%02x\n",destuffedBuffer[destuffedPointer - 1]);
                     printf("simulated bcc2: 0x%02x\n",bcc2);
                 
-                    if (bcc2 == packetBcc)
-                    { // dark magick to spare one more loop ( point of possible failure )
+                    if (bcc2 == destuffedBuffer[destuffedPointer - 1 ])
+                    { 
                         printf("correct bcc2\n");
                         if (duplicate)
                         {      
-                            unsigned char temp[] = {FLAG, A_Rx, RR(I_number), A_Rx ^ RR(I_number), FLAG};
-                            memcpy(sFrame, temp, 5);
+                            sFrame[0] = FLAG; 
+                            sFrame[1] = A_Rx;
+                            sFrame[2] = RR(I_number);
+                            sFrame[3] = A_Rx ^ RR(I_number);
+                            sFrame[4] = FLAG;
                             printf("sent dup\n");
+                            state = START; 
                         }
                         else
                         {
                             I_number = !I_number; // switch I frame
-                            unsigned char temp[] = {FLAG, A_Rx, RR(I_number), A_Rx ^ RR(I_number), FLAG};
-                            memcpy(sFrame, temp, 5);
-                            memcpy(packet, frame, pos - 1);
+                            sFrame[0] = FLAG; 
+                            sFrame[1] = A_Rx;
+                            sFrame[2] = RR(I_number);
+                            sFrame[3] = A_Rx ^ RR(I_number);
+                            sFrame[4] = FLAG;
+                            memcpy(packet, destuffedBuffer, destuffedPointer );
                             printf("sent non dup\n");
                         }
                         frameRcvSuccessfullyCount++;
@@ -611,22 +625,30 @@ int llread(unsigned char *packet)
                         printf("incorrect bcc2\n");
                         if (duplicate)
                         {
-                            unsigned char temp[] = {FLAG, A_Rx, RR(I_number), A_Rx ^ RR(I_number), FLAG};
-                            memcpy(sFrame, temp, 5);
+                            sFrame[0] = FLAG; 
+                            sFrame[1] = A_Rx;
+                            sFrame[2] = RR(I_number);
+                            sFrame[3] = A_Rx ^ RR(I_number);
+                            sFrame[4] = FLAG;
                             printf("sent dup\n");
+                            
                         }
                         else
                         {
-                            unsigned char temp[] = {FLAG, A_Rx, REJ(I_number), A_Rx ^ REJ(I_number), FLAG};
-                            memcpy(sFrame, temp, 5);
+                            sFrame[0] = FLAG; 
+                            sFrame[1] = A_Rx;
+                            sFrame[2] = REJ(I_number);
+                            sFrame[3] = A_Rx ^ REJ(I_number);
+                            sFrame[4] = FLAG;
                             printf("sent non dup\n");
                         }
+                        state = START; 
                     }
                     if (writeBytesSerialPort(sFrame, 5) == -1)
                         return -1;
                     state = END;
                     frameSentCount++;
-                    free(destuffedBuffer);
+                    
                 }
                 break;
             default:
@@ -856,7 +878,7 @@ int llclose(int showStatistics)
         printf("======================================================\n");
         printf("Total number of frames sent: %d\n", frameSentCount);
         printf("Number of frames retransmissioned: %d\n", retransmissionTotalCount);
-        printf("in which %d were retransmissioned due to timeout", timeoutCount);
+        printf("in which %d were retransmissioned due to timeout\n", timeoutCount);
         printf("Total number of frames received successfully: %d\n", frameRcvSuccessfullyCount);
         printf("======================================================\n");
     }
