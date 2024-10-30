@@ -328,14 +328,21 @@ int llwrite(const unsigned char *buf, int bufSize)
         frame = realloc(frame, frameSize);
         frame[k++] = ESC;
         frame[k++] = bcc2 ^ 0x20;
+        printf("bcc2 pre stuff:0x%02x\n", bcc2);
     }
     else
     {
         frame[k++] = bcc2;
+        printf("bcc2:0x%02x\n", bcc2);
     }
+    
     frame[k++] = FLAG;
     unsigned char byte;
     int success;
+    for(int i = 0; i < k; i++){
+        printf("0x%02x ",frame[i]);
+    }
+    printf("\n");
     while (retransmissionLimit > retransmissionCurCount && state != END)
     {
         if (alarmEnabled == FALSE)
@@ -374,13 +381,13 @@ int llwrite(const unsigned char *buf, int bufSize)
                 if (byte == RR(!I_number))
                 {
                     success = TRUE;
-                    state = BCC;
+                    state = C;
                     printf("rr\n");
                 }
                 else if (byte == REJ(I_number))
                 {
                     success = FALSE;
-                    state = BCC;
+                    state = C;
                     printf("rej\n");
                 }
                 else if (byte == FLAG)
@@ -393,6 +400,7 @@ int llwrite(const unsigned char *buf, int bufSize)
                 }
                 break;
             case C:
+                printf("xor: 0x%02x\n",A_Rx ^ RR(!I_number));
                 if ((success && byte == (A_Rx ^ RR(!I_number))) || (!success && byte == (A_Rx ^ REJ(I_number))))
                 {
                     state = BCC;
@@ -458,7 +466,7 @@ int llread(unsigned char *packet)
     unsigned char byte;
     int duplicate = FALSE;
     int escaped = FALSE;
-    int bcc2 = 0;
+    unsigned char bcc2 = 0;
     unsigned char c;
 
     while (state != END)
@@ -488,7 +496,7 @@ int llread(unsigned char *packet)
                     state = A;
                     printf("\na\n");
                 }
-                if (byte == FLAG)
+                else if (byte == FLAG)
                 {
                     state = START_FLAG;
                 }
@@ -498,6 +506,8 @@ int llread(unsigned char *packet)
                 }
                 break;
             case A:
+                printf("teste\n");
+                printf("simulated I: 0x%02x\n", I(I_number));
                 if (byte == I(I_number))
                 {
                     state = C;
@@ -538,28 +548,46 @@ int llread(unsigned char *packet)
             case BCC:
                 if (byte != FLAG)
                 {   
-                    if (byte == ESC)
-                    {
-                        escaped = TRUE;
-                    }
-                    else if (escaped)
-                    {
-                        frame[pos++] = byte ^ 0x20;
-                        bcc2 ^= byte ^ 0x20;
-                        frame = realloc(frame, pos + 1);
-                    }
-                    else
-                    {
-                        frame[pos++] = byte;
-                        bcc2 ^= byte;
-                        frame = realloc(frame, pos + 1);
-                    }
+                    frame[pos++] = byte; 
+                    frame = realloc(frame, pos + 1); 
                 }
                 if (byte == FLAG)
                 {   
                     printf("\nend of packet\n");
                     unsigned char sFrame[5];
-                    if (bcc2 == 0)
+                    unsigned char *destuffedBuffer = malloc(pos);
+                    unsigned char packetBcc = frame[pos - 1 ];
+                    int destuffedPointer = 0; 
+                    for( int i = 0; i < pos; i++){
+                        printf("0x%02x ", frame[i]);
+                    }
+                    printf("\n");
+                    for(int i = 0 ; i < pos - 1; i++){ // destuffing 
+                        if (frame[i] == ESC)
+                        {
+                            escaped = TRUE;
+                        }
+                        else if (escaped)
+                        {   
+                            destuffedBuffer[destuffedPointer++] = frame[i] ^ 0x20;
+                            escaped = FALSE; 
+                        }
+                        else
+                        {   
+                            destuffedBuffer[destuffedPointer++] = frame[i];
+                        }
+                    }
+                    for(int i= 0 ; i < destuffedPointer; i++){
+                        printf("0x%02x ",destuffedBuffer[i]);
+                    }
+                    printf("\n");
+                    for( int i = 0; i < destuffedPointer; i++){
+                        bcc2 ^= destuffedBuffer[i];
+                    }
+                    printf("bcc2: 0x%02x\n",frame[pos- 1]);
+                    printf("simulated bcc2: 0x%02x\n",bcc2);
+                
+                    if (bcc2 == packetBcc)
                     { // dark magick to spare one more loop ( point of possible failure )
                         printf("correct bcc2\n");
                         if (duplicate)
@@ -598,6 +626,7 @@ int llread(unsigned char *packet)
                         return -1;
                     state = END;
                     frameSentCount++;
+                    free(destuffedBuffer);
                 }
                 break;
             default:
@@ -607,6 +636,7 @@ int llread(unsigned char *packet)
     }
     // cleanup
     free(frame);
+    
     return pos - 1;
 }
 
