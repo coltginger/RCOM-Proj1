@@ -11,6 +11,7 @@ unsigned char* makeControlPacket(const int controlField, int fileSize, const cha
 
     int L1 = sizeof(fileSize);
     int L2 = strlen(fileName);
+    // printf("file name size: %d\n",L2);
     unsigned char *controlPacket = malloc(5+L1+L2);
 
     int k = 0;
@@ -153,10 +154,12 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                 for(int i = 0; i < fileSizeSize;i++){
                     fileSize = (fileSize << 8) | packet[3+i];
                 }
-                unsigned char fileNameSize = packet[3+fileSizeSize];
-                unsigned char *fileName = malloc(fileNameSize);
+                unsigned char fileNameSize = packet[4+fileSizeSize];
+                //printf("file name size : %d",fileNameSize);
+                unsigned char *fileName = malloc(fileNameSize+1);
                 memcpy(fileName,packet+5+fileSizeSize,fileNameSize);
-                printf("Recieving file(%s) of size:%ld",fileName,fileSize);
+                fileName[fileNameSize] = '\0'; 
+                printf("Recieving file(%s) of size:%ld\n",fileName,fileSize);
                 free(fileName);
             }
                 
@@ -178,7 +181,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                 unsigned char fileNameSize = packet[3+fileSizeSize];
                 unsigned char *fileName = malloc(fileNameSize);
                 memcpy(fileName,packet+5+fileSizeSize,fileNameSize);
-                printf("Completed recieving file(%s) of size:%ld",fileName,fileSize);
+                printf("Completed recieving file(%s) of size:%ld\n",fileName,fileSize);
                 free(fileName);
                 loop = FALSE;
             }

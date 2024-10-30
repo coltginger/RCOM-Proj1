@@ -91,14 +91,14 @@ int llopenTx()
         
         if (bytes > 0)
         {   
-            printf("byte: 0x%02x\n",byte);
+            //printf("byte: 0x%02x\n",byte);
             switch (state)
             {
             case START:
                 if (byte == FLAG)
                 {
                     state = START_FLAG;
-                    printf("flag\n");
+                    //printf("flag\n");
                     
                 }
                 break;
@@ -106,7 +106,7 @@ int llopenTx()
                 if (byte == A_Rx)
                 {
                     state = A;
-                    printf("A\n");
+                    //printf("A\n");
                 }
                 else if (byte != FLAG)
                 {
@@ -117,7 +117,7 @@ int llopenTx()
                 if (byte == UA)
                 {
                     state = C;
-                    printf("C");
+                    //printf("C");
                 }
                 else if (byte == FLAG)
                 {
@@ -132,7 +132,7 @@ int llopenTx()
                 if (byte == (A_Rx ^ UA))
                 {
                     state = BCC;
-                    printf("bcc\n");
+                    //printf("bcc\n");
                 }
                 else if (byte == FLAG)
                 {
@@ -148,7 +148,7 @@ int llopenTx()
                 {
                     state = END;
                     frameRcvSuccessfullyCount++;
-                    printf("end\n");
+                    //printf("end\n");
                 }
                 else
                 {
@@ -178,7 +178,7 @@ int llopenRx()
         int bytes = readByteSerialPort(&byte);
         if (bytes > 0)
         {   
-            printf("byte : 0x%02x\n",byte);
+            //printf("byte : 0x%02x\n",byte);
             switch (state)
             {
             case START:
@@ -186,14 +186,14 @@ int llopenRx()
                 {
                     I_frame = FALSE;
                     state = START_FLAG;
-                    printf("flag\n");
+                    //printf("flag\n");
                 }
                 break;
             case START_FLAG:
                 if (byte == A_Tx)
                 {
                     state = A;
-                    printf("A\n");
+                    //printf("A\n");
                 }
                 else if (byte != FLAG)
                 {
@@ -204,13 +204,13 @@ int llopenRx()
                 if (byte == SET)
                 {
                     state = C;
-                    printf("c\n");
+                    //printf("c\n");
                 }
                 else if (byte == I(I_number))
                 {
                     I_frame = TRUE;
                     state = C;
-                    printf("i\n");
+                    //printf("i\n");
                 }
                 else if (byte == FLAG)
                 {
@@ -225,12 +225,12 @@ int llopenRx()
                 if ((byte == (A_Tx ^ SET)) && !I_frame)
                 {
                     state = BCC;
-                    printf("bcc\n");
+                    //printf("bcc\n");
                 }
                 else if(byte == (A_Tx ^ I(I_number)) && I_frame){
                     state = END;
                     incompleteIFrame = TRUE;
-                    printf("I complete\n");
+                    //printf("I complete\n");
                 }
                 else if (byte == FLAG)
                 {
@@ -348,19 +348,22 @@ int llwrite(const unsigned char *buf, int bufSize)
         }
         int bytes = readByteSerialPort(&byte);
         if (bytes > 0)
-        {
+        {   
+            printf("byte: 0x%02x\n",byte);
             switch (state)
             {
             case START:
                 if (byte == FLAG)
                 {
                     state = START_FLAG;
+                    printf("flag\n");
                 }
                 break;
             case START_FLAG:
                 if (byte == A_Rx)
                 {
                     state = A;
+                    printf("a\n");
                 }
                 else if (byte != FLAG)
                 {
@@ -372,11 +375,13 @@ int llwrite(const unsigned char *buf, int bufSize)
                 {
                     success = TRUE;
                     state = BCC;
+                    printf("rr\n");
                 }
                 else if (byte == REJ(I_number))
                 {
                     success = FALSE;
                     state = BCC;
+                    printf("rej\n");
                 }
                 else if (byte == FLAG)
                 {
@@ -391,6 +396,7 @@ int llwrite(const unsigned char *buf, int bufSize)
                 if ((success && byte == (A_Rx ^ RR(!I_number))) || (!success && byte == (A_Rx ^ REJ(I_number))))
                 {
                     state = BCC;
+                    printf("bcc\n");
                 }
                 else if (byte == FLAG)
                 {
@@ -405,11 +411,13 @@ int llwrite(const unsigned char *buf, int bufSize)
                 if (byte == FLAG)
                 {
                     if (success)
-                    {
+                    {   
+                        printf("success\n");
                         state = END;
                     }
                     else
-                    {
+                    {   
+                        printf("resend\n");
                         state = START;
                         if (writeBytesSerialPort(frame, frameSize) < 0)
                             return -1;
@@ -459,22 +467,26 @@ int llread(unsigned char *packet)
         {
             state = BCC;
             incompleteIFrame = FALSE;
+            printf("skipped to data\n");
         }
         int bytes = readByteSerialPort(&byte);
         if (bytes > 0)
-        {
+        {   
+            printf("0x%02x ",byte);
             switch (state)
             {
             case START:
                 if (byte == FLAG)
                 {
                     state = START_FLAG;
+                    printf("\nflag\n");
                 }
                 break;
             case START_FLAG:
                 if (byte == A_Tx)
                 {
                     state = A;
+                    printf("\na\n");
                 }
                 if (byte == FLAG)
                 {
@@ -490,12 +502,14 @@ int llread(unsigned char *packet)
                 {
                     state = C;
                     c = byte;
+                    printf("\ncorrect i\n");
                 }
                 else if (byte == I(!I_number))
                 {
                     state = C;
                     c = byte;
                     duplicate = TRUE;
+                    printf("\ndup\n");
                 }
                 else if (byte == FLAG)
                 {
@@ -510,6 +524,7 @@ int llread(unsigned char *packet)
                 if (byte == (A_Tx ^ c))
                 {
                     state = BCC;
+                    printf("\nbcc\n");
                 }
                 else if (byte == FLAG)
                 {
@@ -522,7 +537,7 @@ int llread(unsigned char *packet)
                 break;
             case BCC:
                 if (byte != FLAG)
-                {
+                {   
                     if (byte == ESC)
                     {
                         escaped = TRUE;
@@ -541,14 +556,17 @@ int llread(unsigned char *packet)
                     }
                 }
                 if (byte == FLAG)
-                { //
+                {   
+                    printf("\nend of packet\n");
                     unsigned char sFrame[5];
                     if (bcc2 == 0)
                     { // dark magick to spare one more loop ( point of possible failure )
+                        printf("correct bcc2\n");
                         if (duplicate)
-                        {
+                        {      
                             unsigned char temp[] = {FLAG, A_Rx, RR(I_number), A_Rx ^ RR(I_number), FLAG};
                             memcpy(sFrame, temp, 5);
+                            printf("sent dup\n");
                         }
                         else
                         {
@@ -556,20 +574,24 @@ int llread(unsigned char *packet)
                             unsigned char temp[] = {FLAG, A_Rx, RR(I_number), A_Rx ^ RR(I_number), FLAG};
                             memcpy(sFrame, temp, 5);
                             memcpy(packet, frame, pos - 1);
+                            printf("sent non dup\n");
                         }
                         frameRcvSuccessfullyCount++;
                     }
                     else
-                    {
+                    {   
+                        printf("incorrect bcc2\n");
                         if (duplicate)
                         {
                             unsigned char temp[] = {FLAG, A_Rx, RR(I_number), A_Rx ^ RR(I_number), FLAG};
                             memcpy(sFrame, temp, 5);
+                            printf("sent dup\n");
                         }
                         else
                         {
                             unsigned char temp[] = {FLAG, A_Rx, REJ(I_number), A_Rx ^ REJ(I_number), FLAG};
                             memcpy(sFrame, temp, 5);
+                            printf("sent non dup\n");
                         }
                     }
                     if (writeBytesSerialPort(sFrame, 5) == -1)
