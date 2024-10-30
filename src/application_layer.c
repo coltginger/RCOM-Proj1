@@ -104,8 +104,10 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         unsigned char sequenceNumber = 0;
         unsigned char* data = makeData(file, fileSize);
         int i = fileSize;
+        int counter = 0; 
         while(i > 0)
-        {
+        {   
+            
             
             int currentDataSize = (i > MAX_PAYLOAD_SIZE) ? MAX_PAYLOAD_SIZE : i;
             unsigned char currentData[currentDataSize];
@@ -142,7 +144,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         int loop = TRUE; 
         while(loop){
             printf("in loop\n");
-            unsigned char packet[MAX_PAYLOAD_SIZE];
+            unsigned char packet[MAX_PAYLOAD_SIZE + 4];
             int bytes = llread(packet);
             if(bytes == -1){
                 printf("Failed to read\n");

@@ -62,7 +62,7 @@ void alarmHandler(int signal)
     timeoutCount++;
     state = START;
 
-    printf("Alarm #%d\n", retransmissionTotalCount);
+    printf("Alarm #%d\n", retransmissionCurCount);
 }
 
 #define _POSIX_SOURCE 1 // POSIX compliant source
@@ -482,7 +482,8 @@ int llread(unsigned char *packet)
         {
             state = BCC;
             incompleteIFrame = FALSE;
-            printf("skipped to data\n");
+            
+            //printf("skipped to data\n");
         }
         int bytes = readByteSerialPort(&byte);
         if (bytes > 0)
@@ -494,14 +495,14 @@ int llread(unsigned char *packet)
                 if (byte == FLAG)
                 {
                     state = START_FLAG;
-                    printf("\nflag\n");
+                    //printf("\nflag\n");
                 }
                 break;
             case START_FLAG:
                 if (byte == A_Tx)
                 {
                     state = A;
-                    printf("\na\n");
+                    //printf("\na\n");
                 }
                 else if (byte == FLAG)
                 {
@@ -513,20 +514,20 @@ int llread(unsigned char *packet)
                 }
                 break;
             case A:
-                printf("teste\n");
-                printf("simulated I: 0x%02x\n", I(I_number));
+                //printf("teste\n");
+                //printf("simulated I: 0x%02x\n", I(I_number));
                 if (byte == I(I_number))
                 {
                     state = C;
                     c = byte;
-                    printf("\ncorrect i\n");
+                    //printf("\ncorrect i\n");
                 }
                 else if (byte == I(!I_number))
                 {
                     state = C;
                     c = byte;
                     duplicate = TRUE;
-                    printf("\ndup\n");
+                    //printf("\ndup\n");
                 }
                 else if (byte == FLAG)
                 {
@@ -541,7 +542,8 @@ int llread(unsigned char *packet)
                 if (byte == (A_Tx ^ c))
                 {
                     state = BCC;
-                    printf("\nbcc\n");
+
+                    //printf("\nbcc\n");
                 }
                 else if (byte == FLAG)
                 {
@@ -619,6 +621,7 @@ int llread(unsigned char *packet)
                             printf("sent non dup\n");
                         }
                         frameRcvSuccessfullyCount++;
+                        
                     }
                     else
                     {   
@@ -658,6 +661,7 @@ int llread(unsigned char *packet)
     }
     // cleanup
     free(frame);
+    free(destuffedBuffer);
     
     return pos - 1;
 }
