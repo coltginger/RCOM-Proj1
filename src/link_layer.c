@@ -222,10 +222,15 @@ int llopenRx()
                 }
                 break;
             case C:
-                if (((byte == (A_Tx ^ SET)) && !I_frame) || ((byte == (A_Tx ^ I(I_number)) && I_frame)))
+                if ((byte == (A_Tx ^ SET)) && !I_frame)
                 {
                     state = BCC;
                     printf("bcc\n");
+                }
+                else if(byte == (A_Tx ^ I(I_number)) && I_frame){
+                    state = END;
+                    incompleteIFrame = TRUE;
+                    printf("I complete\n");
                 }
                 else if (byte == FLAG)
                 {
@@ -239,21 +244,13 @@ int llopenRx()
             case BCC:
                 if (byte == FLAG)
                 {
-                    if (I_frame)
-                    {   
-                        state = END;
-                        incompleteIFrame = TRUE;
-                        printf("I complete\n");
-                    }
-                    else
-                    {
-                        printf("con\n");
-                        unsigned char sFrame[] = {FLAG, A_Rx, UA, A_Rx ^ UA, FLAG};
-                        if (writeBytesSerialPort(sFrame, 5) == -1)
-                            return -1;
-                        state = START;
-                        frameSentCount++;
-                    }
+                    printf("con\n");
+                    unsigned char sFrame[] = {FLAG, A_Rx, UA, A_Rx ^ UA, FLAG};
+                    if (writeBytesSerialPort(sFrame, 5) == -1)
+                        return -1;
+                    state = START;
+                    frameSentCount++;
+                    
                 }
                 else
                 {
