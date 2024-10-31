@@ -60,8 +60,6 @@ void alarmHandler(int signal)
     retransmissionCurCount++;
     retransmissionTotalCount++;
     timeoutCount++;
-    state = START;
-
     printf("Alarm #%d\n", retransmissionCurCount);
 }
 
@@ -86,6 +84,7 @@ int llopenTx()
             if (writeBytesSerialPort(sFrame, 5) == -1)
                 return -1;
             frameSentCount++;
+            state = START; 
         }
         int bytes = readByteSerialPort(&byte);
         
@@ -360,6 +359,7 @@ int llwrite(const unsigned char *buf, int bufSize)
             if (writeBytesSerialPort(frame, frameSize) < 0)
                 return -1;
             frameSentCount++;
+            state = START; 
         }
         int bytes = readByteSerialPort(&byte);
         if (bytes > 0)
@@ -698,6 +698,7 @@ int llcloseTx()
             unsigned char sFrame[] = {FLAG, A_Tx, DISC, A_Tx ^ DISC, FLAG};
             if (writeBytesSerialPort(sFrame, 5) == -1)
                 return -1;
+            state = START; 
         }
         int bytes = readByteSerialPort(&byte);
         if (bytes > 0)
