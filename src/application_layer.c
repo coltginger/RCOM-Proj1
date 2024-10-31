@@ -104,7 +104,6 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         unsigned char sequenceNumber = 0;
         unsigned char* data = makeData(file, fileSize);
         int i = fileSize;
-        int counter = 0; 
         while(i > 0)
         {   
             

@@ -250,6 +250,7 @@ int llopenRx()
                         return -1;
                     state = START;
                     frameSentCount++;
+                    frameRcvSuccessfullyCount++;
                     
                 }
                 else
@@ -299,7 +300,6 @@ int llwrite(const unsigned char *buf, int bufSize)
     frame[0] = FLAG;
     frame[1] = A_Tx;
     frame[2] = I(I_number);
-    printf("I number sent: 0x%02X\n",frame[2]);
     frame[3] = A_Tx ^ I(I_number); // BCC1
 
     unsigned char bcc2 = 0;
@@ -356,6 +356,7 @@ int llwrite(const unsigned char *buf, int bufSize)
         {
             alarm(timeout);
             alarmEnabled = TRUE;
+            printf("I number sent: 0x%02X\n",frame[2]);
             if (writeBytesSerialPort(frame, frameSize) < 0)
                 return -1;
             frameSentCount++;
@@ -515,19 +516,19 @@ int llread(unsigned char *packet)
                 break;
             case A:
                 //printf("teste\n");
-                //printf("simulated I: 0x%02x\n", I(I_number));
+                printf("simulated I: 0x%02x\n", I(I_number));
                 if (byte == I(I_number))
                 {
                     state = C;
                     c = byte;
-                    //printf("\ncorrect i\n");
+                    printf("\ncorrect i\n");
                 }
                 else if (byte == I(!I_number))
-                {
+                {   
                     state = C;
                     c = byte;
                     duplicate = TRUE;
-                    //printf("\ndup\n");
+                    printf("\ndup\n");
                 }
                 else if (byte == FLAG)
                 {
@@ -600,7 +601,7 @@ int llread(unsigned char *packet)
                     { 
                         printf("correct bcc2\n");
                         if (duplicate)
-                        {      
+                        {     
                             sFrame[0] = FLAG; 
                             sFrame[1] = A_Rx;
                             sFrame[2] = RR(I_number);
@@ -608,6 +609,9 @@ int llread(unsigned char *packet)
                             sFrame[4] = FLAG;
                             printf("sent dup\n");
                             state = START; 
+                            pos = 0; 
+                            duplicate = FALSE;
+                            bcc2 = 0; 
                         }
                         else
                         {
@@ -619,6 +623,7 @@ int llread(unsigned char *packet)
                             sFrame[4] = FLAG;
                             memcpy(packet, destuffedBuffer, destuffedPointer );
                             printf("sent non dup\n");
+                            state = END;
                         }
                         frameRcvSuccessfullyCount++;
                         
@@ -634,6 +639,11 @@ int llread(unsigned char *packet)
                             sFrame[3] = A_Rx ^ RR(I_number);
                             sFrame[4] = FLAG;
                             printf("sent dup\n");
+                            state = START; 
+                            pos = 0; 
+                            bcc2 = 0; 
+                            
+
                             
                         }
                         else
@@ -644,13 +654,17 @@ int llread(unsigned char *packet)
                             sFrame[3] = A_Rx ^ REJ(I_number);
                             sFrame[4] = FLAG;
                             printf("sent non dup\n");
+                            printf("here\n");
+                            state = START; 
+                            pos = 0; 
+                            bcc2 = 0; 
                         }
-                        state = START; 
+                        
                     }
                     if (writeBytesSerialPort(sFrame, 5) == -1)
                         return -1;
-                    state = END;
                     frameSentCount++;
+                    printf("state:%d\n",state);
                     
                 }
                 break;
