@@ -142,7 +142,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         }
         int loop = TRUE; 
         while(loop){
-            printf("in loop\n");
+            //printf("in loop\n");
             unsigned char packet[MAX_PAYLOAD_SIZE + 4];
             int bytes = llread(packet);
             if(bytes == -1){
@@ -171,6 +171,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             
             case 2: {
                 int size = 256*packet[2] + packet[3];
+                printf("Writing %d bytes to %s\n",size,filename);
                 fwrite(packet+4,sizeof(unsigned char),size,file);
             
             } break;
@@ -200,7 +201,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         printf("Invalid role\n");
         exit(-1);
     }
-    printf("outside\n");
+    //printf("outside\n");
     llclose(1);
 
 }

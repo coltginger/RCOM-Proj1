@@ -60,7 +60,7 @@ void alarmHandler(int signal)
     retransmissionCurCount++;
     retransmissionTotalCount++;
     timeoutCount++;
-    printf("Alarm #%d\n", retransmissionCurCount);
+    printf("Timeout %d of %d\n", retransmissionCurCount,retransmissionLimit);
 }
 
 #define _POSIX_SOURCE 1 // POSIX compliant source
@@ -162,7 +162,7 @@ int llopenTx()
     }
     alarm(0);
     alarmEnabled = FALSE;
-    printf("retr:%d\n",retransmissionCurCount);
+    //printf("retr:%d\n",retransmissionCurCount);
     if (retransmissionLimit <= retransmissionCurCount)
         return -1;
     return 1;
@@ -243,7 +243,7 @@ int llopenRx()
             case BCC:
                 if (byte == FLAG)
                 {
-                    printf("con\n");
+                    //printf("con\n");
                     unsigned char sFrame[] = {FLAG, A_Rx, UA, A_Rx ^ UA, FLAG};
                     if (writeBytesSerialPort(sFrame, 5) == -1)
                         return -1;
@@ -334,28 +334,28 @@ int llwrite(const unsigned char *buf, int bufSize)
         frame = realloc(frame, frameSize);
         frame[k++] = ESC;
         frame[k++] = bcc2 ^ 0x20;
-        printf("bcc2 pre stuff:0x%02x\n", bcc2);
+        //printf("bcc2 pre stuff:0x%02x\n", bcc2);
     }
     else
     {
         frame[k++] = bcc2;
-        printf("bcc2:0x%02x\n", bcc2);
+        //printf("bcc2:0x%02x\n", bcc2);
     }
     
     frame[k++] = FLAG;
     unsigned char byte;
     int success;
     for(int i = 0; i < k; i++){
-        printf("0x%02x ",frame[i]);
+        //printf("0x%02x ",frame[i]);
     }
-    printf("\n");
+    //printf("\n");
     while (retransmissionLimit > retransmissionCurCount && state != END)
     {
         if (alarmEnabled == FALSE)
         {
             alarm(timeout);
             alarmEnabled = TRUE;
-            printf("I number sent: 0x%02X\n",frame[2]);
+            //printf("I number sent: 0x%02X\n",frame[2]);
             if (writeBytesSerialPort(frame, frameSize) < 0)
                 return -1;
             frameSentCount++;
@@ -364,21 +364,21 @@ int llwrite(const unsigned char *buf, int bufSize)
         int bytes = readByteSerialPort(&byte);
         if (bytes > 0)
         {   
-            printf("byte: 0x%02x\n",byte);
+            //printf("byte: 0x%02x\n",byte);
             switch (state)
             {
             case START:
                 if (byte == FLAG)
                 {
                     state = START_FLAG;
-                    printf("flag\n");
+                    //printf("flag\n");
                 }
                 break;
             case START_FLAG:
                 if (byte == A_Rx)
                 {
                     state = A;
-                    printf("a\n");
+                    //printf("a\n");
                 }
                 else if (byte != FLAG)
                 {
@@ -390,13 +390,13 @@ int llwrite(const unsigned char *buf, int bufSize)
                 {
                     success = TRUE;
                     state = C;
-                    printf("rr\n");
+                    //printf("rr\n");
                 }
                 else if (byte == REJ(I_number))
                 {
                     success = FALSE;
                     state = C;
-                    printf("rej\n");
+                    //printf("rej\n");
                 }
                 else if (byte == FLAG)
                 {
@@ -408,11 +408,11 @@ int llwrite(const unsigned char *buf, int bufSize)
                 }
                 break;
             case C:
-                printf("xor: 0x%02x\n",A_Rx ^ RR(!I_number));
+                //printf("xor: 0x%02x\n",A_Rx ^ RR(!I_number));
                 if ((success && byte == (A_Rx ^ RR(!I_number))) || (!success && byte == (A_Rx ^ REJ(I_number))))
                 {
                     state = BCC;
-                    printf("bcc\n");
+                    //printf("bcc\n");
                 }
                 else if (byte == FLAG)
                 {
@@ -428,12 +428,12 @@ int llwrite(const unsigned char *buf, int bufSize)
                 {
                     if (success)
                     {   
-                        printf("success\n");
+                        //printf("success\n");
                         state = END;
                     }
                     else
                     {   
-                        printf("resend\n");
+                        //printf("resend\n");
                         state = START;
                         if (writeBytesSerialPort(frame, frameSize) < 0)
                             return -1;
@@ -489,7 +489,7 @@ int llread(unsigned char *packet)
         int bytes = readByteSerialPort(&byte);
         if (bytes > 0)
         {   
-            printf("0x%02x ",byte);
+            //printf("0x%02x ",byte);
             switch (state)
             {
             case START:
@@ -516,19 +516,19 @@ int llread(unsigned char *packet)
                 break;
             case A:
                 //printf("teste\n");
-                printf("simulated I: 0x%02x\n", I(I_number));
+                //printf("simulated I: 0x%02x\n", I(I_number));
                 if (byte == I(I_number))
                 {
                     state = C;
                     c = byte;
-                    printf("\ncorrect i\n");
+                    //printf("\ncorrect i\n");
                 }
                 else if (byte == I(!I_number))
                 {   
                     state = C;
                     c = byte;
                     duplicate = TRUE;
-                    printf("\ndup\n");
+                    //printf("\ndup\n");
                 }
                 else if (byte == FLAG)
                 {
@@ -565,13 +565,16 @@ int llread(unsigned char *packet)
                 }
                 if (byte == FLAG)
                 {   
-                    printf("\nend of packet\n");
+                    //printf("\nend of packet\n");
                     unsigned char sFrame[5];
                     int destuffedPointer = 0; 
+                    /*
                     for( int i = 0; i < pos; i++){
                         printf("0x%02x ", frame[i]);
                     }
                     printf("\n");
+                    */
+                    
                     for(int i = 0 ; i < pos ; i++){ // destuffing 
                         if (frame[i] == ESC)
                         {
@@ -587,19 +590,21 @@ int llread(unsigned char *packet)
                             destuffedBuffer[destuffedPointer++] = frame[i];
                         }
                     }
+                    /*
                     for(int i= 0 ; i < destuffedPointer; i++){
                         printf("0x%02x ",destuffedBuffer[i]);
                     }
-                    printf("\n");
+                    */
+                    //printf("\n");
                     for( int i = 0; i < destuffedPointer - 1; i++){
                         bcc2 ^= destuffedBuffer[i];
                     }
-                    printf("bcc2: 0x%02x\n",destuffedBuffer[destuffedPointer - 1]);
-                    printf("simulated bcc2: 0x%02x\n",bcc2);
+                    //printf("bcc2: 0x%02x\n",destuffedBuffer[destuffedPointer - 1]);
+                    //printf("simulated bcc2: 0x%02x\n",bcc2);
                 
                     if (bcc2 == destuffedBuffer[destuffedPointer - 1 ])
                     { 
-                        printf("correct bcc2\n");
+                        //printf("correct bcc2\n");
                         if (duplicate)
                         {     
                             sFrame[0] = FLAG; 
@@ -607,7 +612,7 @@ int llread(unsigned char *packet)
                             sFrame[2] = RR(I_number);
                             sFrame[3] = A_Rx ^ RR(I_number);
                             sFrame[4] = FLAG;
-                            printf("sent dup\n");
+                            //printf("sent dup\n");
                             state = START; 
                             pos = 0; 
                             duplicate = FALSE;
@@ -622,7 +627,7 @@ int llread(unsigned char *packet)
                             sFrame[3] = A_Rx ^ RR(I_number);
                             sFrame[4] = FLAG;
                             memcpy(packet, destuffedBuffer, destuffedPointer );
-                            printf("sent non dup\n");
+                            //printf("sent non dup\n");
                             state = END;
                         }
                         frameRcvSuccessfullyCount++;
@@ -630,7 +635,7 @@ int llread(unsigned char *packet)
                     }
                     else
                     {   
-                        printf("incorrect bcc2\n");
+                        //printf("incorrect bcc2\n");
                         if (duplicate)
                         {
                             sFrame[0] = FLAG; 
@@ -638,7 +643,7 @@ int llread(unsigned char *packet)
                             sFrame[2] = RR(I_number);
                             sFrame[3] = A_Rx ^ RR(I_number);
                             sFrame[4] = FLAG;
-                            printf("sent dup\n");
+                            //printf("sent dup\n");
                             state = START; 
                             pos = 0; 
                             bcc2 = 0; 
@@ -653,8 +658,8 @@ int llread(unsigned char *packet)
                             sFrame[2] = REJ(I_number);
                             sFrame[3] = A_Rx ^ REJ(I_number);
                             sFrame[4] = FLAG;
-                            printf("sent non dup\n");
-                            printf("here\n");
+                            //printf("sent non dup\n");
+                            //printf("here\n");
                             state = START; 
                             pos = 0; 
                             bcc2 = 0; 
@@ -664,7 +669,7 @@ int llread(unsigned char *packet)
                     if (writeBytesSerialPort(sFrame, 5) == -1)
                         return -1;
                     frameSentCount++;
-                    printf("state:%d\n",state);
+                    //printf("state:%d\n",state);
                     
                 }
                 break;
