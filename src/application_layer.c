@@ -141,6 +141,8 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             exit(-1);
         }
         int loop = TRUE; 
+        long int initFileSize = 0; 
+        long int currBytes = 0;
         while(loop){
             //printf("in loop\n");
             unsigned char packet[MAX_PAYLOAD_SIZE + 4];
@@ -153,16 +155,15 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             {
             case 1:{
                 unsigned char fileSizeSize = packet[2];
-                long int fileSize = 0; 
                 for(int i = 0; i < fileSizeSize;i++){
-                    fileSize = (fileSize << 8) | packet[3+i];
+                    initFileSize = (initFileSize << 8) | packet[3+i];
                 }
                 unsigned char fileNameSize = packet[4+fileSizeSize];
                 //printf("file name size : %d",fileNameSize);
                 unsigned char *fileName = malloc(fileNameSize+1);
                 memcpy(fileName,packet+5+fileSizeSize,fileNameSize);
                 fileName[fileNameSize] = '\0'; 
-                printf("Recieving file(%s) of size:%ld\n",fileName,fileSize);
+                printf("Recieving file(%s) of size:%ld\n",fileName,initFileSize);
                 free(fileName);
             }
                 
@@ -173,6 +174,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                 int size = 256*packet[2] + packet[3];
                 printf("Writing %d bytes to %s\n",size,filename);
                 fwrite(packet+4,sizeof(unsigned char),size,file);
+                currBytes += size;
             
             } break;
                 
@@ -187,7 +189,10 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                 unsigned char *fileName = malloc(fileNameSize+1);
                 memcpy(fileName,packet+5+fileSizeSize,fileNameSize);
                 fileName[fileNameSize] = '\0'; 
-                printf("Recieving file(%s) of size:%ld\n",fileName,fileSize);
+                printf("Recieved file(%s) of size:%ld\n",fileName,currBytes);
+                if(currBytes != initFileSize){
+                    printf("File size mismatch!\n");
+                }
                 free(fileName);
                 loop = FALSE;
             }
