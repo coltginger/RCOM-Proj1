@@ -15,9 +15,9 @@
 #include "download.h"
 
 int parseURL(char* url, URL* urlParsed) {
-    const char* pattern = "^ftp://(([^:@/]+)(:([^@/]+))?@)?([^/]+)/(.+)$";
+    const char* pattern = "^ftp://(([^:@/]+)(:([^@/]+))?@)?([^/]+)(/([^/]+/)*([^/]+))$";
     regex_t regex;
-    regmatch_t matches[7]; // Array to store match results (7 capture groups)
+    regmatch_t matches[9];  
 
     // Compile the regex
     if (regcomp(&regex, pattern, REG_EXTENDED) != 0) {
@@ -26,7 +26,7 @@ int parseURL(char* url, URL* urlParsed) {
     }
 
     // Execute regex
-    if (regexec(&regex, url, 7, matches, 0) == 0) {
+    if (regexec(&regex, url, 9, matches, 0) == 0) {
         printf("Match found!\n");
 
         // Username
@@ -37,9 +37,7 @@ int parseURL(char* url, URL* urlParsed) {
             printf("Username: %s\n", urlParsed->username);
         } else {
             printf("No username found. Defaulting to 'anonymous'.\n");
-            char* username = "anonymous";
-            urlParsed->username = malloc(strlen(username) + 1);
-            strcpy(urlParsed->username, username);
+            urlParsed->username = strdup("anonymous");
         }
 
         // Password
@@ -50,9 +48,7 @@ int parseURL(char* url, URL* urlParsed) {
             printf("Password: %s\n", urlParsed->password);
         } else {
             printf("No password found. Defaulting to 'anonymous'.\n");
-            char* password = "anonymous";
-            urlParsed->password = malloc(strlen(password) + 1);
-            strcpy(urlParsed->password, password);
+            urlParsed->password = strdup("anonymous");
         }
 
         // Hostname
@@ -66,14 +62,22 @@ int parseURL(char* url, URL* urlParsed) {
             return 1;
         }
 
-        // Path
+        // Path (excluding file name)
         if (matches[6].rm_so != -1) {
             int len = matches[6].rm_eo - matches[6].rm_so;
             urlParsed->path = malloc(len + 1);
             snprintf(urlParsed->path, len + 1, "%.*s", len, url + matches[6].rm_so);
             printf("Path: %s\n", urlParsed->path);
+        }
+
+        // File name
+        if (matches[8].rm_so != -1) {
+            int len = matches[8].rm_eo - matches[8].rm_so;
+            urlParsed->fileName = malloc(len + 1);  
+            snprintf(urlParsed->fileName, len + 1, "%.*s", len, url + matches[8].rm_so);
+            printf("File Name: %s\n", urlParsed->fileName);
         } else {
-            printf("No path found.\n");
+            printf("No file name found.\n");
             return 1;
         }
     } else {
@@ -86,6 +90,7 @@ int parseURL(char* url, URL* urlParsed) {
     return 0;
 }
 
+
 int receiveResponse(int sockfd, Response* response){
     int start_line_pointer = 0;
     int total_length = 0;
@@ -94,9 +99,12 @@ int receiveResponse(int sockfd, Response* response){
         if (bytes_received > 0) {  
             total_length += bytes_received;
             if(total_length >= 2 &&  response->message[total_length - 2] == '\r' && response->message[total_length - 1] == '\n'){
-                if(response->message[start_line_pointer + 3] != '-'){
+                if(response->message[start_line_pointer + 3] != '-' && response->message[start_line_pointer] >= '0' && response->message[start_line_pointer] <= '9' && response->message[start_line_pointer + 1] >= '0' && response->message[start_line_pointer + 1] <= '9' && response->message[start_line_pointer + 2] >= '0' && response->message[start_line_pointer + 2] <= '9'){
                     response->message[total_length] = '\0';
-                    sscanf(response->message + start_line_pointer, "%d", &response->code);
+                    char code[4];
+                    memcpy(code, response->message, 3);
+                    code[3] = '\0';
+                    response->code = atoi(code);
                     break;
                 }
                 else{
@@ -135,9 +143,7 @@ int sendUser(int sockfd, char* username, Response* response){
     printf(message);
     
     if(sendString(sockfd, message)) return 1; 
-    
     if(receiveResponse(sockfd,response)) return 1; 
-    
     printf(response->message);
     if(response->code != 331) return 1; 
     
@@ -233,6 +239,60 @@ int enterPassiveMode(int sockfd_command, int* sockfd_file){
     return 0; 
 }
 
+int getFile(int sockfd_command, int sockfd_file, char* path, char* fileName, int file_size){
+    char message[MSG_SIZE];
+    sprintf(message, "RETR %s\r\n", path);
+    printf(message);
+
+    Response response;
+    if(sendString(sockfd_command, message)) return 1;
+
+    if(receiveResponse(sockfd_command,&response)) return 1;
+
+    printf(response.message);
+    if(response.code < 100 && response.code >= 200) return 1;
+
+    FILE* file = fopen(fileName, "wb");
+    if(file == NULL){
+        printf("Failed to open file\n");
+        return 1; 
+    }
+    int total_bytes_received = 0;
+    while(total_bytes_received < file_size){
+        char buffer[MSG_SIZE];
+        int bytes_received = read(sockfd_file, buffer, MSG_SIZE);
+        if(bytes_received <= 0){
+            printf("Failed to read from socket\n");
+            return 1; 
+        }
+        total_bytes_received += bytes_received;
+        fwrite(buffer, 1, bytes_received, file);
+    }
+    fclose(file);
+
+    if(receiveResponse(sockfd_command,&response)) return 1;
+    
+    printf(response.message);
+    if(response.code < 200) return 1;
+
+    return 0; 
+}
+
+int quit(int sockfd, Response* response){
+    char message[MSG_SIZE];
+    sprintf(message, "QUIT\r\n");
+    printf(message);
+    
+    if(sendString(sockfd, message)) return 1; 
+    
+    if(receiveResponse(sockfd,response)) return 1; 
+    
+    printf(response->message);
+    if(response->code != 221) return 1; 
+    
+    return 0; 
+}
+
 int main(int argc, char **argv) {
     if(argc != 2){
         printf("Need to provide a server ip to connect to\n");
@@ -306,9 +366,15 @@ int main(int argc, char **argv) {
         return 1; 
     }
     
+    if(getFile(sockfd_command, sockfd_file, url.path, url.fileName, file_size)){
+        printf("Failed to get file\n");
+        return 1; 
+    }
 
-
-
+    if(quit(sockfd_command, &response)){
+        printf("Failed to quit\n");
+        return 1; 
+    }
 
     if (close(sockfd_command)<0) {
         printf("Failed to close socket\n");

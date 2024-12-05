@@ -4,6 +4,7 @@ typedef struct {
     char* password; 
     char* hostName; 
     char* path; 
+    char* fileName;
 } URL; /* Struct to store the info parsed by parseURL*/
 
 
