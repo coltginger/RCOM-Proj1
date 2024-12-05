@@ -49,8 +49,10 @@ int parseURL(char* url, URL* urlParsed) {
             snprintf(urlParsed->password, len + 1, "%.*s", len, url + matches[4].rm_so);
             printf("Password: %s\n", urlParsed->password);
         } else {
-            printf("No password found.\n");
-            urlParsed->password = NULL;
+            printf("No password found. Defaulting to 'anonymous'.\n");
+            char* password = "anonymous";
+            urlParsed->password = malloc(strlen(password) + 1);
+            strcpy(urlParsed->password, password);
         }
 
         // Hostname
@@ -85,16 +87,63 @@ int parseURL(char* url, URL* urlParsed) {
 }
 
 int receiveResponse(int sockfd, Response* response){
-    int bytes_received = recv(sockfd, response->message, MSG_SIZE - 1, 0);
-    if (bytes_received > 0) {
-        response->message[bytes_received] = '\0';  // Null-terminate
-        char code[4];
-        strncpy(code, response->message, 3);
-        code[3] = '\0';
-        response->code = atoi(code);
+    int start_line_pointer = 0;
+    int total_length = 0;
+    while(1){
+        int bytes_received = read(sockfd, response->message + total_length, 1);
+        if (bytes_received > 0) {  
+            total_length += bytes_received;
+            if(total_length >= 2 &&  response->message[total_length - 2] == '\r' && response->message[total_length - 1] == '\n'){
+                if(response->message[start_line_pointer + 3] != '-'){
+                    response->message[total_length] = '\0';
+                    sscanf(response->message + start_line_pointer, "%d", &response->code);
+                    break;
+                }
+                else{
+                    start_line_pointer = total_length;
+                    continue;
+                }
+            }
+        }
+    }
+    
+    return 0; 
+}
+
+int sendString( int sockfd, char* message){
+    int bytesSent = write(sockfd, message, strlen(message)) ;
+    if( bytesSent <= 0){
+        printf("No bytes sent\n");
+        return 1;
     }
     return 0; 
 }
+int receiveWelcomeMessage(int sockfd, Response* response){
+    if(receiveResponse(sockfd,response)) return 1; 
+    
+    printf(response->message);
+
+    if(response->code != 220) return 1; 
+    
+    
+    
+    return 0; 
+}
+int sendUser(int sockfd, char* username, Response* response){
+    char message[MSG_SIZE];
+    sprintf(message, "USER %s\r\n", username);
+    printf(message);
+    
+    if(sendString(sockfd, message)) return 1; 
+    
+    if(receiveResponse(sockfd,response)) return 1; 
+    
+    printf(response->message);
+    if(response->code != 331) return 1; 
+    
+    return 0; 
+}
+
 
 int main(int argc, char **argv) {
     if(argc != 2){
@@ -140,20 +189,19 @@ int main(int argc, char **argv) {
     }
     Response response;
     response.code = 0;
-    if(receiveResponse(sockfd,&response)){
-        printf("Failed to receive response\n");
+    if(receiveWelcomeMessage(sockfd,&response)){
+        printf("Failed to receive welcome message\n");
         return 1; 
     }
-    printf(response.message);
-    if(response.code != 220){
-        printf("Failed to connect to server. Terminating program.\n");
+    if(sendUser(sockfd, url.username, &response)){
+        printf("Failed to send user\n");
         return 1; 
     }
 
 
 
 
-    
+
     if (close(sockfd)<0) {
         printf("Failed to close socket\n");
         return 1; 
