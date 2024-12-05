@@ -144,6 +144,94 @@ int sendUser(int sockfd, char* username, Response* response){
     return 0; 
 }
 
+int sendPassword(int sockfd, char* password, Response* response){
+    char message[MSG_SIZE];
+    sprintf(message, "PASS %s\r\n", password);
+    printf(message);
+    
+    if(sendString(sockfd, message)) return 1; 
+    
+    if(receiveResponse(sockfd,response)) return 1; 
+    
+    printf(response->message);
+    if(response->code != 230) return 1; 
+    
+    return 0; 
+}
+int sendType(int sockfd, Response* response){
+    char message[MSG_SIZE];
+    sprintf(message, "TYPE I\r\n");
+    printf(message);
+    
+    if(sendString(sockfd, message)) return 1; 
+    
+    if(receiveResponse(sockfd,response)) return 1; 
+    
+    printf(response->message);
+    if(response->code != 200) return 1; 
+    
+    return 0; 
+}
+int getFileSize(int sockfd, char* path, int* file_size){
+    char message[MSG_SIZE];
+    sprintf(message, "SIZE %s\r\n", path);
+    printf(message);
+    
+    Response response;
+    if(sendString(sockfd, message)) return 1; 
+    
+    if(receiveResponse(sockfd,&response)) return 1; 
+    
+    printf(response.message);
+    if(response.code != 213) return 1; 
+    
+    sscanf(response.message, "213 %d", file_size);
+    
+    return 0; 
+}
+
+int enterPassiveMode(int sockfd_command, int* sockfd_file){
+    char message[MSG_SIZE];
+    sprintf(message, "PASV\r\n");
+    printf(message);
+
+    Response response;
+    if(sendString(sockfd_command, message)) return 1;
+
+    if(receiveResponse(sockfd_command,&response)) return 1;
+
+    printf(response.message);
+    if(response.code != 227) return 1;
+
+    int ip1, ip2, ip3, ip4, port1, port2;
+    sscanf(response.message, "227 Entering Passive Mode (%d,%d,%d,%d,%d,%d)", &ip1, &ip2, &ip3, &ip4, &port1, &port2);
+
+    char ip[16];
+    sprintf(ip, "%d.%d.%d.%d", ip1, ip2, ip3, ip4);
+    struct sockaddr_in server_addr;
+
+    bzero((char *) &server_addr, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = inet_addr(ip);    /*32 bit Internet address network byte ordered*/    
+    server_addr.sin_port = htons(port1 * 256 + port2);        
+    /*open a TCP socket*/
+    if ((*sockfd_file = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        printf("Failed to open socket\n");
+        return 1;
+    }
+    /*connect to the server*/
+    if (connect(*sockfd_file,
+                (struct sockaddr *) &server_addr,
+                sizeof(server_addr)) < 0) {
+
+        perror("connect()");
+        printf("Unable to connect to server\n");
+        return 1; 
+    }
+
+
+    return 0; 
+}
 
 int main(int argc, char **argv) {
     if(argc != 2){
@@ -157,29 +245,29 @@ int main(int argc, char **argv) {
         return 1;
     }  
     
-    struct hostent *h;
-    if ((h = gethostbyname(url.hostName)) == NULL) {
+    struct hostent *command_host;
+    if ((command_host = gethostbyname(url.hostName)) == NULL) {
         printf("Could not get host by name\n");
         return 1;
     }
 
-    printf("Host name  : %s\n", h->h_name);
-    printf("IP Address : %s\n", inet_ntoa(*((struct in_addr *) h->h_addr)));
+    printf("Host name  : %s\n", command_host->h_name);
+    printf("IP Address : %s\n", inet_ntoa(*((struct in_addr *) command_host->h_addr)));
 
-    int sockfd;
+    int sockfd_command;
     struct sockaddr_in server_addr;
 
     bzero((char *) &server_addr, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
-    memcpy(&server_addr.sin_addr, h->h_addr, h->h_length);
+    server_addr.sin_addr.s_addr = inet_addr(inet_ntoa(*((struct in_addr *) command_host->h_addr)));    /*32 bit Internet address network byte ordered*/
     server_addr.sin_port = htons(21);        
     /*open a TCP socket*/
-    if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+    if ((sockfd_command = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
         printf("Failed to open socket\n");
         return 1;
     }
     /*connect to the server*/
-    if (connect(sockfd,
+    if (connect(sockfd_command,
                 (struct sockaddr *) &server_addr,
                 sizeof(server_addr)) < 0) {
 
@@ -189,24 +277,48 @@ int main(int argc, char **argv) {
     }
     Response response;
     response.code = 0;
-    if(receiveWelcomeMessage(sockfd,&response)){
+    if(receiveWelcomeMessage(sockfd_command,&response)){
         printf("Failed to receive welcome message\n");
         return 1; 
     }
-    if(sendUser(sockfd, url.username, &response)){
+    if(sendUser(sockfd_command, url.username, &response)){
         printf("Failed to send user\n");
         return 1; 
     }
+    if(sendPassword(sockfd_command, url.password, &response)){
+        printf("Failed to send password\n");
+        return 1; 
+    }
+    if(sendType(sockfd_command, &response)){
+        printf("Failed to send type\n");
+        return 1; 
+    }
+    int file_size = 0;
+    if(getFileSize(sockfd_command, url.path, &file_size)){
+        printf("Failed to get file size\n");
+        return 1; 
+    }
+    int sockfd_file;
+
+
+    if(enterPassiveMode(sockfd_command, &sockfd_file)){
+        printf("Failed to enter passive mode\n");
+        return 1; 
+    }
+    
 
 
 
 
-
-    if (close(sockfd)<0) {
+    if (close(sockfd_command)<0) {
         printf("Failed to close socket\n");
         return 1; 
     }
     
+    if(close(sockfd_file)<0){
+        printf("Failed to close socket\n");
+        return 1; 
+    }
 
 
     return 0; 
