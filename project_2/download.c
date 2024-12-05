@@ -1,0 +1,167 @@
+/**      (C)2000-2021 FEUP
+ *       tidy up some includes and parameters
+ * */
+
+#include <stdio.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <netdb.h>
+#include <string.h>
+#include <regex.h>
+
+#include "download.h"
+
+int parseURL(char* url, URL* urlParsed) {
+    const char* pattern = "^ftp://(([^:@/]+)(:([^@/]+))?@)?([^/]+)/(.+)$";
+    regex_t regex;
+    regmatch_t matches[7]; // Array to store match results (7 capture groups)
+
+    // Compile the regex
+    if (regcomp(&regex, pattern, REG_EXTENDED) != 0) {
+        printf("Failed to compile regex.\n");
+        return 1;
+    }
+
+    // Execute regex
+    if (regexec(&regex, url, 7, matches, 0) == 0) {
+        printf("Match found!\n");
+
+        // Username
+        if (matches[2].rm_so != -1) {
+            int len = matches[2].rm_eo - matches[2].rm_so;
+            urlParsed->username = malloc(len + 1);
+            snprintf(urlParsed->username, len + 1, "%.*s", len, url + matches[2].rm_so);
+            printf("Username: %s\n", urlParsed->username);
+        } else {
+            printf("No username found. Defaulting to 'anonymous'.\n");
+            char* username = "anonymous";
+            urlParsed->username = malloc(strlen(username) + 1);
+            strcpy(urlParsed->username, username);
+        }
+
+        // Password
+        if (matches[4].rm_so != -1) {
+            int len = matches[4].rm_eo - matches[4].rm_so;
+            urlParsed->password = malloc(len + 1);
+            snprintf(urlParsed->password, len + 1, "%.*s", len, url + matches[4].rm_so);
+            printf("Password: %s\n", urlParsed->password);
+        } else {
+            printf("No password found.\n");
+            urlParsed->password = NULL;
+        }
+
+        // Hostname
+        if (matches[5].rm_so != -1) {
+            int len = matches[5].rm_eo - matches[5].rm_so;
+            urlParsed->hostName = malloc(len + 1);
+            snprintf(urlParsed->hostName, len + 1, "%.*s", len, url + matches[5].rm_so);
+            printf("Hostname: %s\n", urlParsed->hostName);
+        } else {
+            printf("No hostname found.\n");
+            return 1;
+        }
+
+        // Path
+        if (matches[6].rm_so != -1) {
+            int len = matches[6].rm_eo - matches[6].rm_so;
+            urlParsed->path = malloc(len + 1);
+            snprintf(urlParsed->path, len + 1, "%.*s", len, url + matches[6].rm_so);
+            printf("Path: %s\n", urlParsed->path);
+        } else {
+            printf("No path found.\n");
+            return 1;
+        }
+    } else {
+        printf("No match found.\n");
+        return 1;
+    }
+
+    // Free the regex resources
+    regfree(&regex);
+    return 0;
+}
+
+int receiveResponse(int sockfd, Response* response){
+    int bytes_received = recv(sockfd, response->message, MSG_SIZE - 1, 0);
+    if (bytes_received > 0) {
+        response->message[bytes_received] = '\0';  // Null-terminate
+        char code[4];
+        strncpy(code, response->message, 3);
+        code[3] = '\0';
+        response->code = atoi(code);
+    }
+    return 0; 
+}
+
+int main(int argc, char **argv) {
+    if(argc != 2){
+        printf("Need to provide a server ip to connect to\n");
+        return 1; 
+    }
+    URL url; 
+
+    if(parseURL(argv[1], &url)){
+        printf("Failed to parse URL\n");
+        return 1;
+    }  
+    
+    struct hostent *h;
+    if ((h = gethostbyname(url.hostName)) == NULL) {
+        printf("Could not get host by name\n");
+        return 1;
+    }
+
+    printf("Host name  : %s\n", h->h_name);
+    printf("IP Address : %s\n", inet_ntoa(*((struct in_addr *) h->h_addr)));
+
+    int sockfd;
+    struct sockaddr_in server_addr;
+
+    bzero((char *) &server_addr, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    memcpy(&server_addr.sin_addr, h->h_addr, h->h_length);
+    server_addr.sin_port = htons(21);        
+    /*open a TCP socket*/
+    if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        printf("Failed to open socket\n");
+        return 1;
+    }
+    /*connect to the server*/
+    if (connect(sockfd,
+                (struct sockaddr *) &server_addr,
+                sizeof(server_addr)) < 0) {
+
+        perror("connect()");
+        printf("Unable to connect to server\n");
+        return 1; 
+    }
+    Response response;
+    response.code = 0;
+    if(receiveResponse(sockfd,&response)){
+        printf("Failed to receive response\n");
+        return 1; 
+    }
+    printf(response.message);
+    if(response.code != 220){
+        printf("Failed to connect to server. Terminating program.\n");
+        return 1; 
+    }
+
+
+
+
+    
+    if (close(sockfd)<0) {
+        printf("Failed to close socket\n");
+        return 1; 
+    }
+    
+
+
+    return 0; 
+}
+
+
