@@ -238,7 +238,11 @@ int enterPassiveMode(int sockfd_command, int* sockfd_file){
 
     return 0; 
 }
-
+int printProgress(int bytes_received, int file_size){
+    printf("\rProgress: %d%%", (int)((float)bytes_received / file_size * 100));
+    fflush(stdout);
+    return 0; 
+}
 int getFile(int sockfd_command, int sockfd_file, char* path, char* fileName, int file_size){
     char message[MSG_SIZE];
     sprintf(message, "RETR %s\r\n", path);
@@ -267,7 +271,9 @@ int getFile(int sockfd_command, int sockfd_file, char* path, char* fileName, int
         }
         total_bytes_received += bytes_received;
         fwrite(buffer, 1, bytes_received, file);
+        printProgress(total_bytes_received, file_size);
     }
+    printf("\r\n");
     fclose(file);
 
     if(receiveResponse(sockfd_command,&response)) return 1;
