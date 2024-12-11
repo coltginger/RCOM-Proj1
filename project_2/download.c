@@ -210,8 +210,7 @@ int enterPassiveMode(int sockfd_command, int* sockfd_file){
     if(response.code != 227) return 1;
 
     int ip1, ip2, ip3, ip4, port1, port2;
-    sscanf(response.message, "227 Entering Passive Mode (%d,%d,%d,%d,%d,%d)", &ip1, &ip2, &ip3, &ip4, &port1, &port2);
-
+    sscanf(response.message, "%*[^(](%d,%d,%d,%d,%d,%d)", &ip1, &ip2, &ip3, &ip4, &port1, &port2);
     char ip[16];
     sprintf(ip, "%d.%d.%d.%d", ip1, ip2, ip3, ip4);
     struct sockaddr_in server_addr;
